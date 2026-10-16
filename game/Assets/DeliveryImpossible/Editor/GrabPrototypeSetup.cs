@@ -1,6 +1,8 @@
 using System.Linq;
 using DeliveryImpossible.Interaction;
 using DeliveryImpossible.Networking;
+using DeliveryImpossible.Orders;
+using DeliveryImpossible.UI;
 using Mirror;
 using TMPro;
 using UnityEditor;
@@ -24,6 +26,7 @@ namespace DeliveryImpossible.Editor
         private const string CargoMaterialPath = MaterialsFolder + "/CargoPrototype.mat";
         private const string HeavyCargoMaterialPath = MaterialsFolder + "/HeavyCargoPrototype.mat";
         private const string ObstacleMaterialPath = MaterialsFolder + "/ObstaclePrototype.mat";
+        private const string DeliveryZoneMaterialPath = MaterialsFolder + "/DeliveryZonePrototype.mat";
         private const string SourceFontPath = "Assets/TextMesh Pro/Fonts/LiberationSans.ttf";
         private const string DeliveryFontPath = FontsFolder + "/DeliveryFont.asset";
         private const string TestScenePath = RootFolder + "/Scenes/MovementTest.unity";
@@ -51,13 +54,21 @@ namespace DeliveryImpossible.Editor
                 ObstacleMaterialPath,
                 "Obstacle Prototype",
                 new Color(0.25f, 0.27f, 0.31f, 1f));
+            Material deliveryZoneMaterial = GetOrCreateMaterial(
+                DeliveryZoneMaterialPath,
+                "Delivery Zone Prototype",
+                new Color(0.12f, 0.85f, 0.28f, 1f));
             TMP_FontAsset deliveryFont = GetOrCreateDeliveryFont();
             EnsurePromptCharacters(deliveryFont);
             GameObject cargoPrefab = GetOrCreateCargoPrefab(cargoMaterial);
             GameObject heavyCargoPrefab = GetOrCreateHeavyCargoPrefab(heavyCargoMaterial);
             AddGrabberToPlayerPrefab(deliveryFont);
             RegisterCargoPrefabs(cargoPrefab, heavyCargoPrefab);
-            AddCargoToTestScene(cargoPrefab, heavyCargoPrefab, obstacleMaterial);
+            AddCargoToTestScene(
+                cargoPrefab,
+                heavyCargoPrefab,
+                obstacleMaterial,
+                deliveryZoneMaterial);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -67,7 +78,9 @@ namespace DeliveryImpossible.Editor
         private static void EnsurePromptCharacters(TMP_FontAsset fontAsset)
         {
             const string promptCharacters =
-                "E — взять отпустить Нужен второй игрок Тяжёлый груз схватить помочь нести Несём вдвоём";
+                "E — взять отпустить Нужен второй игрок Тяжёлый груз схватить помочь нести Несём вдвоём " +
+                "ЗАКАЗ заберите пронесите через дверь поставьте в зелёную зону выполнен Новый заказ " +
+                "Не трогайте Ожидание заказа 0123456789%:!";
 
             if (fontAsset == null)
             {
@@ -282,7 +295,7 @@ namespace DeliveryImpossible.Editor
 
                 SerializedObject serializedGrabber = new SerializedObject(grabber);
                 serializedGrabber.FindProperty("playerCamera").objectReferenceValue = camera;
-                CreateOrUpdateInteractionHud(root, serializedGrabber, deliveryFont);
+                CreateOrUpdateHud(root, serializedGrabber, deliveryFont);
                 serializedGrabber.ApplyModifiedPropertiesWithoutUndo();
                 PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
             }
@@ -292,7 +305,7 @@ namespace DeliveryImpossible.Editor
             }
         }
 
-        private static void CreateOrUpdateInteractionHud(
+        private static void CreateOrUpdateHud(
             GameObject playerRoot,
             SerializedObject serializedGrabber,
             TMP_FontAsset deliveryFont)
@@ -382,7 +395,85 @@ namespace DeliveryImpossible.Editor
             prompt.raycastTarget = false;
 
             serializedGrabber.FindProperty("interactionCanvas").objectReferenceValue = canvas;
+            serializedGrabber.FindProperty("interactionPanel").objectReferenceValue = panelObject;
             serializedGrabber.FindProperty("interactionPrompt").objectReferenceValue = prompt;
+
+            NetworkOrderHud orderHud = playerRoot.GetComponent<NetworkOrderHud>();
+            if (orderHud == null)
+            {
+                orderHud = playerRoot.AddComponent<NetworkOrderHud>();
+            }
+
+            CreateOrUpdateOrderPanel(canvasObject, deliveryFont, out GameObject orderPanel, out TMP_Text orderText);
+            SerializedObject serializedOrderHud = new SerializedObject(orderHud);
+            serializedOrderHud.FindProperty("hudCanvas").objectReferenceValue = canvas;
+            serializedOrderHud.FindProperty("orderPanel").objectReferenceValue = orderPanel;
+            serializedOrderHud.FindProperty("orderText").objectReferenceValue = orderText;
+            serializedOrderHud.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void CreateOrUpdateOrderPanel(
+            GameObject canvasObject,
+            TMP_FontAsset deliveryFont,
+            out GameObject panelObject,
+            out TMP_Text orderText)
+        {
+            Transform existingPanel = canvasObject.transform.Find("OrderPanel");
+            if (existingPanel == null)
+            {
+                panelObject = new GameObject(
+                    "OrderPanel",
+                    typeof(RectTransform),
+                    typeof(UnityEngine.UI.Image));
+                panelObject.transform.SetParent(canvasObject.transform, false);
+            }
+            else
+            {
+                panelObject = existingPanel.gameObject;
+            }
+
+            RectTransform panelRect = panelObject.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(1f, 1f);
+            panelRect.anchorMax = new Vector2(1f, 1f);
+            panelRect.pivot = new Vector2(1f, 1f);
+            panelRect.anchoredPosition = new Vector2(-32f, -32f);
+            panelRect.sizeDelta = new Vector2(640f, 128f);
+
+            UnityEngine.UI.Image background = panelObject.GetComponent<UnityEngine.UI.Image>();
+            background.color = new Color(0.02f, 0.025f, 0.035f, 0.82f);
+            background.raycastTarget = false;
+
+            Transform existingText = panelObject.transform.Find("OrderText");
+            GameObject textObject;
+            if (existingText == null)
+            {
+                textObject = new GameObject(
+                    "OrderText",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                textObject.transform.SetParent(panelObject.transform, false);
+            }
+            else
+            {
+                textObject = existingText.gameObject;
+            }
+
+            RectTransform textRect = textObject.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(22f, 14f);
+            textRect.offsetMax = new Vector2(-22f, -14f);
+
+            TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+            text.font = deliveryFont;
+            text.text = "ЗАКАЗ: заберите тяжёлый груз";
+            text.fontSize = 28f;
+            text.fontStyle = FontStyles.Bold;
+            text.alignment = TextAlignmentOptions.MidlineLeft;
+            text.color = Color.white;
+            text.raycastTarget = false;
+            panelObject.SetActive(true);
+            orderText = text;
         }
 
         private static void RegisterCargoPrefabs(params GameObject[] cargoPrefabs)
@@ -416,7 +507,8 @@ namespace DeliveryImpossible.Editor
         private static void AddCargoToTestScene(
             GameObject cargoPrefab,
             GameObject heavyCargoPrefab,
-            Material obstacleMaterial)
+            Material obstacleMaterial,
+            Material deliveryZoneMaterial)
         {
             Scene previousActiveScene = SceneManager.GetActiveScene();
             Scene testScene = EditorSceneManager.GetSceneByPath(TestScenePath);
@@ -474,6 +566,11 @@ namespace DeliveryImpossible.Editor
                     new Vector3(0f, 2.75f, 10f),
                     new Vector3(1.5f, 0.5f, 0.5f),
                     obstacleMaterial);
+
+                DeliveryZone deliveryZone = CreateOrUpdateDeliveryZone(
+                    testScene,
+                    deliveryZoneMaterial);
+                CreateOrUpdateFirstOrder(testScene, heavyCargo, deliveryZone);
                 EditorSceneManager.MarkSceneDirty(testScene);
                 EditorSceneManager.SaveScene(testScene);
             }
@@ -489,6 +586,92 @@ namespace DeliveryImpossible.Editor
                     EditorSceneManager.CloseScene(testScene, true);
                 }
             }
+        }
+
+        private static DeliveryZone CreateOrUpdateDeliveryZone(Scene scene, Material material)
+        {
+            GameObject zoneObject = scene.GetRootGameObjects()
+                .FirstOrDefault(item => item.name == "Delivery Zone");
+            if (zoneObject == null)
+            {
+                zoneObject = new GameObject("Delivery Zone");
+                SceneManager.MoveGameObjectToScene(zoneObject, scene);
+            }
+
+            zoneObject.transform.SetPositionAndRotation(
+                new Vector3(0f, 0f, 14f),
+                Quaternion.identity);
+
+            BoxCollider zoneCollider = zoneObject.GetComponent<BoxCollider>();
+            if (zoneCollider == null)
+            {
+                zoneCollider = zoneObject.AddComponent<BoxCollider>();
+            }
+
+            zoneCollider.isTrigger = true;
+            zoneCollider.center = new Vector3(0f, 1.25f, 0f);
+            zoneCollider.size = new Vector3(5f, 2.5f, 4f);
+
+            DeliveryZone deliveryZone = zoneObject.GetComponent<DeliveryZone>();
+            if (deliveryZone == null)
+            {
+                deliveryZone = zoneObject.AddComponent<DeliveryZone>();
+            }
+
+            SerializedObject serializedZone = new SerializedObject(deliveryZone);
+            serializedZone.FindProperty("zoneCollider").objectReferenceValue = zoneCollider;
+            serializedZone.ApplyModifiedPropertiesWithoutUndo();
+
+            Transform visualTransform = zoneObject.transform.Find("Zone Visual");
+            GameObject visual;
+            if (visualTransform == null)
+            {
+                visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                visual.name = "Zone Visual";
+                visual.transform.SetParent(zoneObject.transform, false);
+                Object.DestroyImmediate(visual.GetComponent<Collider>());
+            }
+            else
+            {
+                visual = visualTransform.gameObject;
+            }
+
+            visual.transform.localPosition = new Vector3(0f, 0.025f, 0f);
+            visual.transform.localRotation = Quaternion.identity;
+            visual.transform.localScale = new Vector3(5f, 0.05f, 4f);
+            visual.GetComponent<Renderer>().sharedMaterial = material;
+            return deliveryZone;
+        }
+
+        private static void CreateOrUpdateFirstOrder(
+            Scene scene,
+            GameObject heavyCargo,
+            DeliveryZone deliveryZone)
+        {
+            GameObject orderObject = scene.GetRootGameObjects()
+                .FirstOrDefault(item => item.name == "First Delivery Order");
+            if (orderObject == null)
+            {
+                orderObject = new GameObject("First Delivery Order");
+                SceneManager.MoveGameObjectToScene(orderObject, scene);
+            }
+
+            if (orderObject.GetComponent<NetworkIdentity>() == null)
+            {
+                orderObject.AddComponent<NetworkIdentity>();
+            }
+
+            NetworkDeliveryOrder order = orderObject.GetComponent<NetworkDeliveryOrder>();
+            if (order == null)
+            {
+                order = orderObject.AddComponent<NetworkDeliveryOrder>();
+            }
+
+            SerializedObject serializedOrder = new SerializedObject(order);
+            serializedOrder.FindProperty("targetCargo").objectReferenceValue =
+                heavyCargo.GetComponent<NetworkGrabbable>();
+            serializedOrder.FindProperty("deliveryZone").objectReferenceValue = deliveryZone;
+            serializedOrder.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void CreateOrUpdateObstacle(

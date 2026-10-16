@@ -283,6 +283,32 @@ namespace DeliveryImpossible.Interaction
         }
 
         [Server]
+        public void ServerResetPose(Vector3 position, Quaternion rotation)
+        {
+            for (int index = serverHolders.Length - 1; index >= 0; index--)
+            {
+                NetworkGrabber holder = serverHolders[index]?.Holder;
+                if (holder != null)
+                {
+                    holder.ServerReleaseTarget(this);
+                }
+                else
+                {
+                    serverHolders[index] = null;
+                }
+            }
+
+            RefreshHolderSyncState();
+            body.position = position;
+            body.rotation = rotation;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            networkPosition = position;
+            networkRotation = rotation;
+            body.WakeUp();
+        }
+
+        [Server]
         private void RefreshHolderSyncState()
         {
             firstHolderNetId = GetHolderNetId(serverHolders[0]);

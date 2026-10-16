@@ -12,6 +12,7 @@ namespace DeliveryImpossible.Interaction
         [Header("References")]
         [SerializeField] private Camera playerCamera;
         [SerializeField] private Canvas interactionCanvas;
+        [SerializeField] private GameObject interactionPanel;
         [SerializeField] private TMP_Text interactionPrompt;
 
         [Header("Interaction")]
@@ -166,7 +167,10 @@ namespace DeliveryImpossible.Interaction
             }
 
             interactionPrompt.text = message;
-            interactionCanvas.enabled = !string.IsNullOrEmpty(message);
+            if (interactionPanel != null)
+            {
+                interactionPanel.SetActive(!string.IsNullOrEmpty(message));
+            }
         }
 
         private void GetDesiredPose(out Vector3 position, out Quaternion rotation)
@@ -294,7 +298,12 @@ namespace DeliveryImpossible.Interaction
 
             if (interactionCanvas != null)
             {
-                interactionCanvas.enabled = false;
+                interactionCanvas.enabled = true;
+            }
+
+            if (interactionPanel != null)
+            {
+                interactionPanel.SetActive(false);
             }
         }
 
@@ -305,6 +314,11 @@ namespace DeliveryImpossible.Interaction
             if (interactionCanvas != null)
             {
                 interactionCanvas.enabled = false;
+            }
+
+            if (interactionPanel != null)
+            {
+                interactionPanel.SetActive(false);
             }
 
             base.OnStopLocalPlayer();
