@@ -316,7 +316,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b856dd932cb143049b189a06c9bfdaf7, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Interaction.NetworkGrabbable
 --- !u!1 &1162904019
 GameObject:
@@ -458,7 +458,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 11481c7bb8776e442a9911ff6de3e3d3, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Orders.DeliveryZone
   zoneCollider: {fileID: 1294188922}
 --- !u!65 &1294188922
@@ -583,7 +583,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4e8bef879de2ee04297852654f5677dd, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Orders.NetworkDeliveryOrder
   syncMethod: 0
   syncDirection: 0
@@ -605,7 +605,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Mirror::Mirror.NetworkIdentity
   sceneId: 979278389
   _assetId: 0

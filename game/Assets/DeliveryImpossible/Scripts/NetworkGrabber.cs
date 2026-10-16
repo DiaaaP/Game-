@@ -14,6 +14,9 @@ namespace DeliveryImpossible.Interaction
         [SerializeField] private Canvas interactionCanvas;
         [SerializeField] private GameObject interactionPanel;
         [SerializeField] private TMP_Text interactionPrompt;
+        [SerializeField] private TMP_Text interactionHint;
+        [SerializeField] private GameObject cooperationWarningPanel;
+        [SerializeField] private TMP_Text cooperationWarningText;
 
         [Header("Interaction")]
         [SerializeField, Min(0.5f)] private float interactionDistance = 4f;
@@ -133,43 +136,68 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
-            string message = string.Empty;
+            string action = string.Empty;
+            string hint = string.Empty;
+            string warning = string.Empty;
             NetworkGrabbable held = HeldObject;
             if (held != null)
             {
                 if (held.NeedsMoreHolders)
                 {
-                    message = "Нужен второй игрок\nE — отпустить";
+                    action = "ОТПУСТИТЬ ГРУЗ";
+                    hint = "ГРУЗ БУДЕТ БРОШЕН";
+                    warning = "НУЖЕН ВТОРОЙ ИГРОК  |  ТЯЖЁЛЫЙ ГРУЗ";
                 }
                 else if (held.RequiresTeam)
                 {
-                    message = "Несём вдвоём\nE — отпустить";
+                    action = "ОТПУСТИТЬ ГРУЗ";
+                    hint = "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ";
                 }
                 else
                 {
-                    message = "E — отпустить";
+                    action = "ОТПУСТИТЬ ГРУЗ";
+                    hint = "ГРУЗ БУДЕТ БРОШЕН";
                 }
             }
             else if (hovered != null)
             {
                 if (hovered.RequiresTeam && hovered.HolderCount > 0)
                 {
-                    message = "E — помочь нести";
+                    action = "ПОМОЧЬ НЕСТИ";
+                    hint = "СХВАТИТЕ СВОЮ СТОРОНУ";
                 }
                 else if (hovered.RequiresTeam)
                 {
-                    message = "E — схватить\nТяжёлый груз: нужен второй игрок";
+                    action = "СХВАТИТЬ ГРУЗ";
+                    hint = "УДЕРЖИВАЙТЕ ДЛЯ ПОДДЕРЖКИ";
+                    warning = "НУЖЕН ВТОРОЙ ИГРОК  |  ТЯЖЁЛЫЙ ГРУЗ";
                 }
                 else
                 {
-                    message = "E — взять";
+                    action = "ВЗЯТЬ ГРУЗ";
+                    hint = "ПЕРЕНЕСТИ ПРЕДМЕТ";
                 }
             }
 
-            interactionPrompt.text = message;
+            interactionPrompt.text = action;
+            if (interactionHint != null)
+            {
+                interactionHint.text = hint;
+            }
+
+            if (cooperationWarningText != null)
+            {
+                cooperationWarningText.text = warning;
+            }
+
             if (interactionPanel != null)
             {
-                interactionPanel.SetActive(!string.IsNullOrEmpty(message));
+                interactionPanel.SetActive(!string.IsNullOrEmpty(action));
+            }
+
+            if (cooperationWarningPanel != null)
+            {
+                cooperationWarningPanel.SetActive(!string.IsNullOrEmpty(warning));
             }
         }
 
@@ -305,6 +333,11 @@ namespace DeliveryImpossible.Interaction
             {
                 interactionPanel.SetActive(false);
             }
+
+            if (cooperationWarningPanel != null)
+            {
+                cooperationWarningPanel.SetActive(false);
+            }
         }
 
         public override void OnStopLocalPlayer()
@@ -319,6 +352,11 @@ namespace DeliveryImpossible.Interaction
             if (interactionPanel != null)
             {
                 interactionPanel.SetActive(false);
+            }
+
+            if (cooperationWarningPanel != null)
+            {
+                cooperationWarningPanel.SetActive(false);
             }
 
             base.OnStopLocalPlayer();

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Linq;
 using Mirror;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace DeliveryImpossible.Networking
 {
@@ -11,6 +12,30 @@ namespace DeliveryImpossible.Networking
     public sealed class DevelopmentNetworkLauncher : MonoBehaviour
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private NetworkManagerHUD networkHud;
+        private bool showNetworkHudWhileConnected;
+
+        private void Awake()
+        {
+            networkHud = GetComponent<NetworkManagerHUD>();
+        }
+
+        private void Update()
+        {
+            if (Keyboard.current?.f1Key.wasPressedThisFrame == true)
+            {
+                showNetworkHudWhileConnected = !showNetworkHudWhileConnected;
+            }
+
+            if (networkHud == null)
+            {
+                return;
+            }
+
+            bool connected = NetworkServer.active || NetworkClient.isConnected;
+            networkHud.enabled = !connected || showNetworkHudWhileConnected;
+        }
+
         private IEnumerator Start()
         {
             string[] arguments = Environment.GetCommandLineArgs();
