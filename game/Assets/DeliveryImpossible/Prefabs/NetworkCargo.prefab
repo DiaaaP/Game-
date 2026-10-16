@@ -182,6 +182,9 @@ MonoBehaviour:
   rotationDamping: 8
   maxAngularAcceleration: 45
   breakDistance: 5.5
+  maxHolders: 2
+  requiredHolders: 1
+  insufficientHolderStrength: 1
   highlightColor: {r: 1, g: 0.72, b: 0.12, a: 1}
   highlightedRenderers: []
   clientPositionLerp: 22

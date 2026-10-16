@@ -1,4 +1,5 @@
 using Mirror;
+using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,6 +11,8 @@ namespace DeliveryImpossible.Interaction
     {
         [Header("References")]
         [SerializeField] private Camera playerCamera;
+        [SerializeField] private Canvas interactionCanvas;
+        [SerializeField] private TMP_Text interactionPrompt;
 
         [Header("Interaction")]
         [SerializeField, Min(0.5f)] private float interactionDistance = 4f;
@@ -25,6 +28,7 @@ namespace DeliveryImpossible.Interaction
         private NetworkIdentity heldIdentity;
 
         private NetworkGrabbable hovered;
+        private Vector3 hoveredGrabPoint;
         private NetworkGrabbable serverHeld;
         private Quaternion heldRotationOffset = Quaternion.identity;
         private uint pendingGrabNetId;
@@ -39,6 +43,8 @@ namespace DeliveryImpossible.Interaction
             {
                 return;
             }
+
+            UpdateInteractionPrompt();
 
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
@@ -76,7 +82,7 @@ namespace DeliveryImpossible.Interaction
             heldRotationOffset = Quaternion.Inverse(playerCamera.transform.rotation) * hovered.transform.rotation;
             pendingGrabNetId = hovered.netId;
             GetDesiredPose(out Vector3 desiredPosition, out Quaternion desiredRotation);
-            CmdTryGrab(hovered.netId, desiredPosition, desiredRotation);
+            CmdTryGrab(hovered.netId, hoveredGrabPoint, desiredPosition, desiredRotation);
         }
 
         private void UpdateHoveredObject()
@@ -93,9 +99,14 @@ namespace DeliveryImpossible.Interaction
                     QueryTriggerInteraction.Ignore))
             {
                 candidate = hit.collider.GetComponentInParent<NetworkGrabbable>();
-                if (candidate != null && candidate.IsHeld)
+                if (candidate != null && candidate.IsFullyHeld)
                 {
                     candidate = null;
+                }
+
+                if (candidate != null)
+                {
+                    hoveredGrabPoint = hit.point;
                 }
             }
 
@@ -114,6 +125,50 @@ namespace DeliveryImpossible.Interaction
             hovered?.SetHighlighted(true);
         }
 
+        private void UpdateInteractionPrompt()
+        {
+            if (interactionCanvas == null || interactionPrompt == null)
+            {
+                return;
+            }
+
+            string message = string.Empty;
+            NetworkGrabbable held = HeldObject;
+            if (held != null)
+            {
+                if (held.NeedsMoreHolders)
+                {
+                    message = "Нужен второй игрок\nE — отпустить";
+                }
+                else if (held.RequiresTeam)
+                {
+                    message = "Несём вдвоём\nE — отпустить";
+                }
+                else
+                {
+                    message = "E — отпустить";
+                }
+            }
+            else if (hovered != null)
+            {
+                if (hovered.RequiresTeam && hovered.HolderCount > 0)
+                {
+                    message = "E — помочь нести";
+                }
+                else if (hovered.RequiresTeam)
+                {
+                    message = "E — схватить\nТяжёлый груз: нужен второй игрок";
+                }
+                else
+                {
+                    message = "E — взять";
+                }
+            }
+
+            interactionPrompt.text = message;
+            interactionCanvas.enabled = !string.IsNullOrEmpty(message);
+        }
+
         private void GetDesiredPose(out Vector3 position, out Quaternion rotation)
         {
             Transform cameraTransform = playerCamera.transform;
@@ -122,9 +177,14 @@ namespace DeliveryImpossible.Interaction
         }
 
         [Command]
-        private void CmdTryGrab(uint targetNetId, Vector3 desiredPosition, Quaternion desiredRotation)
+        private void CmdTryGrab(
+            uint targetNetId,
+            Vector3 worldGrabPoint,
+            Vector3 desiredPosition,
+            Quaternion desiredRotation)
         {
             if (serverHeld != null ||
+                !IsFinite(worldGrabPoint) ||
                 !IsFinite(desiredPosition, desiredRotation) ||
                 !NetworkServer.spawned.TryGetValue(targetNetId, out NetworkIdentity targetIdentity))
             {
@@ -135,12 +195,13 @@ namespace DeliveryImpossible.Interaction
             Vector3 interactionOrigin = transform.position + Vector3.up * 1.5f;
             if (target == null ||
                 target.DistanceFrom(interactionOrigin) > interactionDistance + 0.5f ||
+                target.DistanceFrom(worldGrabPoint) > 0.5f ||
                 Vector3.Distance(transform.position, desiredPosition) > maxTargetDistanceFromPlayer)
             {
                 return;
             }
 
-            if (!target.ServerBeginGrab(this, desiredPosition, desiredRotation))
+            if (!target.ServerBeginGrab(this, worldGrabPoint, desiredPosition, desiredRotation))
             {
                 return;
             }
@@ -159,7 +220,7 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
-            serverHeld.ServerSetTargetPose(desiredPosition, desiredRotation);
+            serverHeld.ServerSetTargetPose(this, desiredPosition, desiredRotation);
         }
 
         [Command]
@@ -210,6 +271,13 @@ namespace DeliveryImpossible.Interaction
                    float.IsFinite(rotation.w);
         }
 
+        private static bool IsFinite(Vector3 position)
+        {
+            return float.IsFinite(position.x) &&
+                   float.IsFinite(position.y) &&
+                   float.IsFinite(position.z);
+        }
+
         public override void OnStopServer()
         {
             if (serverHeld != null)
@@ -220,9 +288,25 @@ namespace DeliveryImpossible.Interaction
             base.OnStopServer();
         }
 
+        public override void OnStartLocalPlayer()
+        {
+            base.OnStartLocalPlayer();
+
+            if (interactionCanvas != null)
+            {
+                interactionCanvas.enabled = false;
+            }
+        }
+
         public override void OnStopLocalPlayer()
         {
             SetHovered(null);
+
+            if (interactionCanvas != null)
+            {
+                interactionCanvas.enabled = false;
+            }
+
             base.OnStopLocalPlayer();
         }
 

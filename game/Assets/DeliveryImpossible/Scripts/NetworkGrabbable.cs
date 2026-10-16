@@ -8,6 +8,14 @@ namespace DeliveryImpossible.Interaction
     [RequireComponent(typeof(Rigidbody))]
     public sealed class NetworkGrabbable : NetworkBehaviour
     {
+        private sealed class HolderState
+        {
+            public NetworkGrabber Holder;
+            public Vector3 LocalAnchor;
+            public Vector3 TargetPosition;
+            public Quaternion TargetRotation;
+        }
+
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
 
@@ -19,6 +27,9 @@ namespace DeliveryImpossible.Interaction
         [SerializeField, Min(0f)] private float rotationDamping = 8f;
         [SerializeField, Min(0f)] private float maxAngularAcceleration = 45f;
         [SerializeField, Min(0.5f)] private float breakDistance = 5.5f;
+        [SerializeField, Range(1, 2)] private int maxHolders = 2;
+        [SerializeField, Range(1, 2)] private int requiredHolders = 1;
+        [SerializeField, Range(0.01f, 1f)] private float insufficientHolderStrength = 0.1f;
 
         [Header("Local Feedback")]
         [SerializeField] private Color highlightColor = new Color(1f, 0.72f, 0.12f, 1f);
@@ -28,7 +39,9 @@ namespace DeliveryImpossible.Interaction
         [SerializeField, Min(0f)] private float clientPositionLerp = 22f;
         [SerializeField, Min(0f)] private float clientRotationLerp = 18f;
 
-        [SyncVar] private uint holderNetId;
+        [SyncVar] private byte holderCount;
+        [SyncVar] private uint firstHolderNetId;
+        [SyncVar] private uint secondHolderNetId;
 
         [SyncVar(hook = nameof(OnNetworkPositionChanged))]
         private Vector3 networkPosition;
@@ -37,17 +50,21 @@ namespace DeliveryImpossible.Interaction
         private Quaternion networkRotation = Quaternion.identity;
 
         private Rigidbody body;
-        private NetworkGrabber serverHolder;
-        private Vector3 targetPosition;
-        private Quaternion targetRotation;
+        private readonly HolderState[] serverHolders = new HolderState[2];
         private Vector3 clientTargetPosition;
         private Quaternion clientTargetRotation;
         private MaterialPropertyBlock highlightBlock;
         private bool originalIsKinematic;
         private bool highlighted;
 
-        public bool IsHeld => holderNetId != 0;
-        public uint HolderNetId => holderNetId;
+        public bool IsHeld => holderCount > 0;
+        public bool IsFullyHeld => holderCount >= maxHolders;
+        public bool RequiresTeam => requiredHolders > 1;
+        public bool NeedsMoreHolders => holderCount > 0 && holderCount < requiredHolders;
+        public int HolderCount => holderCount;
+        public int RequiredHolders => requiredHolders;
+        public uint FirstHolderNetId => firstHolderNetId;
+        public uint SecondHolderNetId => secondHolderNetId;
         public Vector3 WorldCenter => body != null ? body.worldCenterOfMass : transform.position;
 
         private void Awake()
@@ -115,21 +132,62 @@ namespace DeliveryImpossible.Interaction
         [Server]
         private void UpdateServerPhysics()
         {
-            if (serverHolder == null || body.isKinematic)
+            if (holderCount == 0 || body.isKinematic)
             {
                 return;
             }
 
-            if (!serverHolder.isActiveAndEnabled ||
-                Vector3.Distance(serverHolder.transform.position, WorldCenter) > breakDistance)
+            for (int index = serverHolders.Length - 1; index >= 0; index--)
             {
-                serverHolder.ServerReleaseTarget(this);
-                return;
+                HolderState state = serverHolders[index];
+                if (state != null &&
+                    (state.Holder == null ||
+                     !state.Holder.isActiveAndEnabled ||
+                     Vector3.Distance(state.Holder.transform.position, WorldCenter) > breakDistance))
+                {
+                    if (state.Holder != null)
+                    {
+                        state.Holder.ServerReleaseTarget(this);
+                    }
+                    else
+                    {
+                        serverHolders[index] = null;
+                        RefreshHolderSyncState();
+                    }
+                }
             }
 
-            Vector3 positionError = targetPosition - WorldCenter;
-            Vector3 acceleration = positionError * positionSpring - body.linearVelocity * positionDamping;
-            body.AddForce(Vector3.ClampMagnitude(acceleration, maxAcceleration), ForceMode.Acceleration);
+            Quaternion targetRotation = Quaternion.identity;
+            int activeHolders = 0;
+            float controlStrength = holderCount >= requiredHolders
+                ? 1f
+                : insufficientHolderStrength;
+            foreach (HolderState state in serverHolders)
+            {
+                if (state == null)
+                {
+                    continue;
+                }
+
+                Vector3 anchorPosition = transform.TransformPoint(state.LocalAnchor);
+                Vector3 positionError = state.TargetPosition - anchorPosition;
+                Vector3 pointVelocity = body.GetPointVelocity(anchorPosition);
+                Vector3 acceleration = positionError * positionSpring - pointVelocity * positionDamping;
+                body.AddForceAtPosition(
+                    Vector3.ClampMagnitude(acceleration, maxAcceleration * controlStrength),
+                    anchorPosition,
+                    ForceMode.Acceleration);
+
+                targetRotation = activeHolders == 0
+                    ? state.TargetRotation
+                    : Quaternion.Slerp(targetRotation, state.TargetRotation, 1f / (activeHolders + 1f));
+                activeHolders++;
+            }
+
+            if (activeHolders == 0)
+            {
+                return;
+            }
 
             Quaternion rotationError = targetRotation * Quaternion.Inverse(body.rotation);
             rotationError.ToAngleAxis(out float angleDegrees, out Vector3 axis);
@@ -144,7 +202,9 @@ namespace DeliveryImpossible.Interaction
                     axis.normalized * (angleDegrees * Mathf.Deg2Rad * rotationSpring) -
                     body.angularVelocity * rotationDamping;
                 body.AddTorque(
-                    Vector3.ClampMagnitude(angularAcceleration, maxAngularAcceleration),
+                    Vector3.ClampMagnitude(
+                        angularAcceleration,
+                        maxAngularAcceleration * controlStrength),
                     ForceMode.Acceleration);
             }
         }
@@ -162,45 +222,106 @@ namespace DeliveryImpossible.Interaction
         [Server]
         public bool ServerBeginGrab(
             NetworkGrabber holder,
+            Vector3 worldGrabPoint,
             Vector3 desiredPosition,
             Quaternion desiredRotation)
         {
-            if (holder == null || serverHolder != null || body == null || body.isKinematic)
+            if (holder == null ||
+                body == null ||
+                body.isKinematic ||
+                FindHolderIndex(holder) >= 0)
             {
                 return false;
             }
 
-            serverHolder = holder;
-            holderNetId = holder.netId;
-            targetPosition = desiredPosition;
-            targetRotation = desiredRotation;
+            int freeIndex = FindFreeHolderIndex();
+            if (freeIndex < 0 || freeIndex >= maxHolders)
+            {
+                return false;
+            }
+
+            serverHolders[freeIndex] = new HolderState
+            {
+                Holder = holder,
+                LocalAnchor = transform.InverseTransformPoint(worldGrabPoint),
+                TargetPosition = desiredPosition,
+                TargetRotation = desiredRotation
+            };
+            RefreshHolderSyncState();
             body.WakeUp();
             return true;
         }
 
         [Server]
-        public void ServerSetTargetPose(Vector3 desiredPosition, Quaternion desiredRotation)
+        public void ServerSetTargetPose(
+            NetworkGrabber holder,
+            Vector3 desiredPosition,
+            Quaternion desiredRotation)
         {
-            if (serverHolder == null)
+            int index = FindHolderIndex(holder);
+            if (index < 0)
             {
                 return;
             }
 
-            targetPosition = desiredPosition;
-            targetRotation = desiredRotation;
+            serverHolders[index].TargetPosition = desiredPosition;
+            serverHolders[index].TargetRotation = desiredRotation;
         }
 
         [Server]
         public void ServerEndGrab(NetworkGrabber holder)
         {
-            if (holder != serverHolder)
+            int index = FindHolderIndex(holder);
+            if (index < 0)
             {
                 return;
             }
 
-            serverHolder = null;
-            holderNetId = 0;
+            serverHolders[index] = null;
+            RefreshHolderSyncState();
             body?.WakeUp();
+        }
+
+        [Server]
+        private void RefreshHolderSyncState()
+        {
+            firstHolderNetId = GetHolderNetId(serverHolders[0]);
+            secondHolderNetId = GetHolderNetId(serverHolders[1]);
+            holderCount = (byte)((firstHolderNetId != 0 ? 1 : 0) +
+                                 (secondHolderNetId != 0 ? 1 : 0));
+        }
+
+        private static uint GetHolderNetId(HolderState state)
+        {
+            return state?.Holder != null ? state.Holder.netId : 0;
+        }
+
+        [Server]
+        private int FindHolderIndex(NetworkGrabber holder)
+        {
+            for (int index = 0; index < serverHolders.Length; index++)
+            {
+                if (serverHolders[index]?.Holder == holder)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        [Server]
+        private int FindFreeHolderIndex()
+        {
+            for (int index = 0; index < serverHolders.Length; index++)
+            {
+                if (serverHolders[index] == null)
+                {
+                    return index;
+                }
+            }
+
+            return -1;
         }
 
         public float DistanceFrom(Vector3 point)
@@ -265,10 +386,20 @@ namespace DeliveryImpossible.Interaction
 
         public override void OnStopServer()
         {
-            if (serverHolder != null)
+            for (int index = serverHolders.Length - 1; index >= 0; index--)
             {
-                serverHolder.ServerReleaseTarget(this);
+                NetworkGrabber holder = serverHolders[index]?.Holder;
+                if (holder != null)
+                {
+                    holder.ServerReleaseTarget(this);
+                }
+                else
+                {
+                    serverHolders[index] = null;
+                }
             }
+
+            RefreshHolderSyncState();
 
             if (body != null)
             {
