@@ -303,6 +303,67 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1597ededc3bb78d48a7aa118bea85aa1, type: 3}
+--- !u!1001 &1801161798
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 2925860376697954264, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: sceneId
+      value: 1805911789
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.65
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.9848078
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0.1736482
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6900697784418832545, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7234172316694918627, guid: 68e63e92e25d4174688353775f848b54, type: 3}
+      propertyPath: m_Name
+      value: Test Network Cargo
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 68e63e92e25d4174688353775f848b54, type: 3}
 --- !u!1 &2081541820
 GameObject:
   m_ObjectHideFlags: 0
@@ -512,3 +573,4 @@ SceneRoots:
   - {fileID: 1320676208}
   - {fileID: 2134727474}
   - {fileID: 2081541822}
+  - {fileID: 1801161798}

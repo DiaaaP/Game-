@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 4552399960829666158}
   - component: {fileID: 6655922952826916272}
   - component: {fileID: 7105462579757332991}
+  - component: {fileID: 7305734135786810943}
   m_Layer: 0
   m_Name: NetworkBootstrap
   m_TagString: Untagged
@@ -95,7 +96,8 @@ MonoBehaviour:
   playerPrefab: {fileID: 1458727146727203503, guid: 050bf8ad6c2ccfe4cab58e71666a0104, type: 3}
   autoCreatePlayer: 1
   playerSpawnMethod: 0
-  spawnPrefabs: []
+  spawnPrefabs:
+  - {fileID: 7234172316694918627, guid: 68e63e92e25d4174688353775f848b54, type: 3}
   snapshotSettings:
     bufferTimeMultiplier: 2
     bufferLimit: 32
@@ -124,3 +126,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Mirror::Mirror.NetworkManagerHUD
   offsetX: 0
   offsetY: 0
+--- !u!114 &7305734135786810943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6153679888583746586}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0389f972746ef4f42b1ba1fe92f3d67b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Networking.DevelopmentNetworkLauncher
