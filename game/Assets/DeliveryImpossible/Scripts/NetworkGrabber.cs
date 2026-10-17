@@ -48,6 +48,14 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
+            if (DeliveryImpossible.UI.NetworkLobbyUi.BlocksGameplay)
+            {
+                SetHovered(null);
+                interactionPanel?.SetActive(false);
+                cooperationWarningPanel?.SetActive(false);
+                return;
+            }
+
             UpdateInteractionPrompt();
 
             Keyboard keyboard = Keyboard.current;

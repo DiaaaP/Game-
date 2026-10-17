@@ -11,12 +11,12 @@ namespace DeliveryImpossible.Networking
     [RequireComponent(typeof(NetworkManager))]
     public sealed class DevelopmentNetworkLauncher : MonoBehaviour
     {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private NetworkManagerHUD networkHud;
         private bool showNetworkHudWhileConnected;
 
         private void Awake()
         {
+            Application.runInBackground = true;
             networkHud = GetComponent<NetworkManagerHUD>();
         }
 
@@ -32,8 +32,7 @@ namespace DeliveryImpossible.Networking
                 return;
             }
 
-            bool connected = NetworkServer.active || NetworkClient.isConnected;
-            networkHud.enabled = !connected || showNetworkHudWhileConnected;
+            networkHud.enabled = showNetworkHudWhileConnected;
         }
 
         private IEnumerator Start()
@@ -46,7 +45,7 @@ namespace DeliveryImpossible.Networking
             {
                 yield return null;
                 NetworkManager manager = GetComponent<NetworkManager>();
-                manager.networkAddress = "localhost";
+                manager.networkAddress = "127.0.0.1";
                 manager.StartClient();
             }
 
@@ -76,6 +75,5 @@ namespace DeliveryImpossible.Networking
                 yield return wait;
             }
         }
-#endif
     }
 }

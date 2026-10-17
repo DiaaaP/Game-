@@ -1,6 +1,7 @@
 using Mirror;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using DeliveryImpossible.UI;
 
 namespace DeliveryImpossible.Player
 {
@@ -58,7 +59,10 @@ namespace DeliveryImpossible.Player
         {
             base.OnStartLocalPlayer();
             SetLocalPresentation(true);
-            CaptureCursor();
+            if (!NetworkLobbyUi.BlocksGameplay)
+            {
+                CaptureCursor();
+            }
         }
 
         public override void OnStopLocalPlayer()
@@ -82,6 +86,12 @@ namespace DeliveryImpossible.Player
 
             if (!isLocalPlayer)
             {
+                return;
+            }
+
+            if (NetworkLobbyUi.BlocksGameplay)
+            {
+                ReleaseCursor();
                 return;
             }
 

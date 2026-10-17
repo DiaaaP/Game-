@@ -1,5 +1,4 @@
-using System.Linq;
-using DeliveryImpossible.Interaction;
+using DeliveryImpossible.Networking;
 using DeliveryImpossible.Orders;
 using Mirror;
 using TMPro;
@@ -17,7 +16,6 @@ namespace DeliveryImpossible.UI
         private static readonly Color32 PaperMuted = new Color32(190, 185, 176, 255);
         private static readonly Color32 Orange = new Color32(255, 85, 0, 255);
         private static readonly Color32 Green = new Color32(34, 197, 94, 255);
-        private static readonly Color32 Muted = new Color32(83, 88, 95, 255);
 
         [Header("Root")]
         [SerializeField] private Canvas hudCanvas;
@@ -40,24 +38,10 @@ namespace DeliveryImpossible.UI
         [SerializeField] private TMP_Text placementText;
         [SerializeField] private RectTransform placementFill;
 
-        [Header("Teammate")]
-        [SerializeField] private TMP_Text teammateTitleText;
-        [SerializeField] private TMP_Text teammateConnectionText;
-        [SerializeField] private TMP_Text teammateStateText;
-        [SerializeField] private TMP_Text teammateGripText;
-        [SerializeField] private TMP_Text teammateStabilityText;
-        [SerializeField] private Image[] teammateGripSegments;
-
-        private NetworkGrabber localGrabber;
-        private NetworkGrabber teammateGrabber;
-        private float nextTeammateSearchTime;
-
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
-            localGrabber = GetComponent<NetworkGrabber>();
-            SetVisible(true);
-            UpdateTeammatePanel(true);
+            SetVisible(false);
         }
 
         private void Update()
@@ -67,8 +51,13 @@ namespace DeliveryImpossible.UI
                 return;
             }
 
-            UpdateOrderPanel(NetworkDeliveryOrder.Active);
-            UpdateTeammatePanel(false);
+            bool sessionStarted = NetworkSessionState.Active != null &&
+                                  NetworkSessionState.Active.SessionStarted;
+            SetVisible(sessionStarted);
+            if (sessionStarted)
+            {
+                UpdateOrderPanel(NetworkDeliveryOrder.Active);
+            }
         }
 
         private void UpdateOrderPanel(NetworkDeliveryOrder order)
@@ -169,51 +158,6 @@ namespace DeliveryImpossible.UI
             }
         }
 
-        private void UpdateTeammatePanel(bool forceSearch)
-        {
-            if (forceSearch || teammateGrabber == null || !teammateGrabber.isActiveAndEnabled)
-            {
-                if (forceSearch || Time.unscaledTime >= nextTeammateSearchTime)
-                {
-                    nextTeammateSearchTime = Time.unscaledTime + 0.5f;
-                    teammateGrabber = FindObjectsByType<NetworkGrabber>(FindObjectsSortMode.None)
-                        .FirstOrDefault(grabber => grabber != localGrabber && grabber.isClient);
-                }
-            }
-
-            if (teammateGrabber == null)
-            {
-                SetText(teammateTitleText, "НАПАРНИК: ОЖИДАНИЕ");
-                SetText(teammateConnectionText, "НЕ В СЕТИ");
-                SetText(teammateStateText, "ОЖИДАЕМ ПОДКЛЮЧЕНИЯ");
-                SetText(teammateGripText, "ХВАТ: 0%");
-                SetText(teammateStabilityText, "—");
-                SetGripSegments(0f, Muted);
-                return;
-            }
-
-            NetworkGrabbable heldCargo = teammateGrabber.HeldObject;
-            SetText(teammateTitleText, "НАПАРНИК");
-            SetText(teammateConnectionText, "В СЕТИ");
-
-            if (heldCargo == null)
-            {
-                SetText(teammateStateText, "ГРУЗ НЕ ДЕРЖИТ");
-                SetText(teammateGripText, "ХВАТ: 0%");
-                SetText(teammateStabilityText, "ОЖИДАЕТ");
-                SetGripSegments(0f, Muted);
-                return;
-            }
-
-            bool fullyHeld = heldCargo.IsFullyHeld;
-            float grip = fullyHeld ? 1f : 0.5f;
-            Color32 gripColor = fullyHeld ? Green : Orange;
-            SetText(teammateStateText, "ДЕРЖИТ ГРУЗ");
-            SetText(teammateGripText, $"ХВАТ: {Mathf.RoundToInt(grip * 100f)}%");
-            SetText(teammateStabilityText, fullyHeld ? "ОТЛИЧНАЯ" : "НУЖНА ПОМОЩЬ");
-            SetGripSegments(grip, gripColor);
-        }
-
         private void SetPlacementProgress(float progress, bool visible)
         {
             if (placementPanel != null)
@@ -228,25 +172,6 @@ namespace DeliveryImpossible.UI
                 Vector2 anchorMax = placementFill.anchorMax;
                 anchorMax.x = Mathf.Clamp01(progress);
                 placementFill.anchorMax = anchorMax;
-            }
-        }
-
-        private void SetGripSegments(float normalized, Color32 activeColor)
-        {
-            if (teammateGripSegments == null)
-            {
-                return;
-            }
-
-            int activeCount = Mathf.RoundToInt(normalized * teammateGripSegments.Length);
-            for (int index = 0; index < teammateGripSegments.Length; index++)
-            {
-                if (teammateGripSegments[index] != null)
-                {
-                    teammateGripSegments[index].color = index < activeCount
-                        ? activeColor
-                        : Muted;
-                }
             }
         }
 

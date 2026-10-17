@@ -1,5 +1,6 @@
 using System;
 using DeliveryImpossible.Interaction;
+using DeliveryImpossible.Networking;
 using Mirror;
 using UnityEngine;
 
@@ -131,6 +132,11 @@ namespace DeliveryImpossible.Orders
         [ServerCallback]
         private void FixedUpdate()
         {
+            if (NetworkSessionState.Active != null && !NetworkSessionState.Active.SessionStarted)
+            {
+                return;
+            }
+
             if (state == DeliveryOrderState.Completed)
             {
                 if (NetworkTime.time >= transitionAtNetworkTime)
@@ -243,6 +249,12 @@ namespace DeliveryImpossible.Orders
             completedOrders = 0;
             totalScore = 0;
             BeginCurrentOrder();
+        }
+
+        [Server]
+        public void ServerRestartShift()
+        {
+            RestartShift();
         }
 
         [Server]

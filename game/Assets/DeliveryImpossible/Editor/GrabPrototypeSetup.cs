@@ -10,6 +10,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
+using DeliveryLobbyPlayer = DeliveryImpossible.Networking.NetworkLobbyPlayer;
 
 namespace DeliveryImpossible.Editor
 {
@@ -19,6 +20,8 @@ namespace DeliveryImpossible.Editor
         private const string PrefabsFolder = RootFolder + "/Prefabs";
         private const string MaterialsFolder = RootFolder + "/Materials";
         private const string FontsFolder = RootFolder + "/Fonts";
+        private const string UiFolder = RootFolder + "/UI";
+        private const string MenuBackgroundPath = UiFolder + "/MainMenuBackground.png";
         private const string PlayerPrefabPath = PrefabsFolder + "/NetworkPlayer.prefab";
         private const string BootstrapPrefabPath = PrefabsFolder + "/NetworkBootstrap.prefab";
         private const string CargoPrefabPath = PrefabsFolder + "/NetworkCargo.prefab";
@@ -86,6 +89,7 @@ namespace DeliveryImpossible.Editor
                 "Delivery Rubik");
             EnsureHudCharacters(headingFont);
             EnsureHudCharacters(bodyFont);
+            Sprite menuBackground = GetMenuBackgroundSprite();
             GameObject cargoPrefab = GetOrCreateCargoPrefab(cargoMaterial);
             GameObject heavyCargoPrefab = GetOrCreateHeavyCargoPrefab(heavyCargoMaterial);
             GameObject fragileCargoPrefab = GetOrCreateFragileCargoPrefab(
@@ -93,6 +97,7 @@ namespace DeliveryImpossible.Editor
                 fragileScreenMaterial,
                 fragileDamageMaterial);
             AddGrabberToPlayerPrefab(headingFont, bodyFont);
+            AddLobbyUiToBootstrapPrefab(headingFont, bodyFont, menuBackground);
             RegisterCargoPrefabs(cargoPrefab, heavyCargoPrefab, fragileCargoPrefab);
             AddCargoToTestScene(
                 cargoPrefab,
@@ -164,6 +169,38 @@ namespace DeliveryImpossible.Editor
             AssetDatabase.AddObjectToAsset(fontAsset.material, fontAsset);
             AssetDatabase.SaveAssetIfDirty(fontAsset);
             return fontAsset;
+        }
+
+        private static Sprite GetMenuBackgroundSprite()
+        {
+            TextureImporter importer = AssetImporter.GetAtPath(MenuBackgroundPath) as TextureImporter;
+            if (importer == null)
+            {
+                AssetDatabase.ImportAsset(MenuBackgroundPath, ImportAssetOptions.ForceUpdate);
+                importer = AssetImporter.GetAtPath(MenuBackgroundPath) as TextureImporter;
+            }
+
+            if (importer == null)
+            {
+                Debug.LogWarning($"[Delivery Impossible] Menu background is missing: {MenuBackgroundPath}");
+                return null;
+            }
+
+            bool changed = importer.textureType != TextureImporterType.Sprite ||
+                           importer.mipmapEnabled ||
+                           importer.maxTextureSize != 2048;
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.mipmapEnabled = false;
+            importer.alphaIsTransparency = false;
+            importer.maxTextureSize = 2048;
+            importer.textureCompression = TextureImporterCompression.CompressedHQ;
+            if (changed)
+            {
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(MenuBackgroundPath);
         }
 
         private static Material GetOrCreateMaterial(string path, string name, Color color)
@@ -487,6 +524,11 @@ namespace DeliveryImpossible.Editor
                     grabber = root.AddComponent<NetworkGrabber>();
                 }
 
+                if (root.GetComponent<DeliveryLobbyPlayer>() == null)
+                {
+                    root.AddComponent<DeliveryLobbyPlayer>();
+                }
+
                 SerializedObject serializedGrabber = new SerializedObject(grabber);
                 serializedGrabber.FindProperty("playerCamera").objectReferenceValue = camera;
                 CreateOrUpdateHud(root, serializedGrabber, headingFont, bodyFont);
@@ -560,16 +602,6 @@ namespace DeliveryImpossible.Editor
                 out GameObject placementPanel,
                 out TMP_Text placementText,
                 out RectTransform placementFill);
-            CreateTeammatePanel(
-                canvasObject.transform,
-                headingFont,
-                bodyFont,
-                out TMP_Text teammateTitle,
-                out TMP_Text teammateConnection,
-                out TMP_Text teammateState,
-                out TMP_Text teammateGrip,
-                out TMP_Text teammateStability,
-                out UnityEngine.UI.Image[] teammateSegments);
             CreateOrderManifest(
                 canvasObject.transform,
                 headingFont,
@@ -611,18 +643,6 @@ namespace DeliveryImpossible.Editor
             serializedOrderHud.FindProperty("placementPanel").objectReferenceValue = placementPanel;
             serializedOrderHud.FindProperty("placementText").objectReferenceValue = placementText;
             serializedOrderHud.FindProperty("placementFill").objectReferenceValue = placementFill;
-            serializedOrderHud.FindProperty("teammateTitleText").objectReferenceValue = teammateTitle;
-            serializedOrderHud.FindProperty("teammateConnectionText").objectReferenceValue = teammateConnection;
-            serializedOrderHud.FindProperty("teammateStateText").objectReferenceValue = teammateState;
-            serializedOrderHud.FindProperty("teammateGripText").objectReferenceValue = teammateGrip;
-            serializedOrderHud.FindProperty("teammateStabilityText").objectReferenceValue = teammateStability;
-            SerializedProperty segmentProperty = serializedOrderHud.FindProperty("teammateGripSegments");
-            segmentProperty.arraySize = teammateSegments.Length;
-            for (int index = 0; index < teammateSegments.Length; index++)
-            {
-                segmentProperty.GetArrayElementAtIndex(index).objectReferenceValue = teammateSegments[index];
-            }
-
             serializedOrderHud.ApplyModifiedPropertiesWithoutUndo();
         }
 
@@ -763,67 +783,6 @@ namespace DeliveryImpossible.Editor
                 stripe.transform.localRotation = Quaternion.Euler(0f, 0f, -35f);
             }
             panel.SetActive(false);
-        }
-
-        private static void CreateTeammatePanel(
-            Transform parent,
-            TMP_FontAsset headingFont,
-            TMP_FontAsset bodyFont,
-            out TMP_Text title,
-            out TMP_Text connection,
-            out TMP_Text state,
-            out TMP_Text grip,
-            out TMP_Text stability,
-            out UnityEngine.UI.Image[] segments)
-        {
-            GameObject panel = CreatePanel(
-                "TeammatePanel", parent,
-                Vector2.zero, Vector2.zero, Vector2.zero,
-                new Vector2(48f, 48f), new Vector2(390f, 116f),
-                new Color32(20, 23, 26, 248), true);
-            AddOutline(panel, new Color32(62, 68, 75, 255), new Vector2(2f, -2f));
-            GameObject header = CreatePanel(
-                "Header", panel.transform,
-                new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
-                Vector2.zero, new Vector2(0f, 42f),
-                new Color32(38, 42, 46, 255), false);
-            title = CreateText(
-                "Title", header.transform, headingFont, "НАПАРНИК: ОЖИДАНИЕ", 17f,
-                Color.white, TextAlignmentOptions.Left,
-                Vector2.zero, Vector2.one, new Vector2(0f, 0.5f),
-                new Vector2(14f, 0f), new Vector2(-138f, 0f), FontStyles.Bold);
-            connection = CreateText(
-                "Connection", header.transform, bodyFont, "НЕ В СЕТИ", 10f,
-                new Color32(74, 225, 118, 255), TextAlignmentOptions.Center,
-                new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
-                new Vector2(-12f, 0f), new Vector2(112f, 24f), FontStyles.Bold);
-            state = CreateText(
-                "State", panel.transform, headingFont, "ОЖИДАЕМ ПОДКЛЮЧЕНИЯ", 14f,
-                new Color32(210, 213, 216, 255), TextAlignmentOptions.Left,
-                new Vector2(0f, 1f), new Vector2(0.68f, 1f), new Vector2(0f, 1f),
-                new Vector2(14f, -52f), new Vector2(-4f, 22f), FontStyles.Bold);
-            grip = CreateText(
-                "Grip", panel.transform, bodyFont, "ХВАТ: 0%", 11f,
-                Color.white, TextAlignmentOptions.Right,
-                new Vector2(0.68f, 1f), Vector2.one, new Vector2(1f, 1f),
-                new Vector2(-14f, -52f), new Vector2(-4f, 22f), FontStyles.Bold);
-            GameObject track = CreatePanel(
-                "GripTrack", panel.transform,
-                new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(0f, -84f), new Vector2(-28f, 16f),
-                new Color32(10, 12, 14, 255), false);
-            AddOutline(track, new Color32(75, 80, 87, 255), new Vector2(1f, -1f));
-            segments = new UnityEngine.UI.Image[5];
-            for (int index = 0; index < segments.Length; index++)
-            {
-                GameObject segment = CreatePanel(
-                    $"Segment {index + 1}", track.transform,
-                    new Vector2(index / 5f, 0f), new Vector2((index + 1f) / 5f, 1f),
-                    new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-4f, -6f),
-                    new Color32(83, 88, 95, 255), false);
-                segments[index] = segment.GetComponent<UnityEngine.UI.Image>();
-            }
-            stability = null;
         }
 
         private static void CreateOrderManifest(
@@ -1052,6 +1011,603 @@ namespace DeliveryImpossible.Editor
             outline.effectColor = color;
             outline.effectDistance = distance;
             outline.useGraphicAlpha = false;
+        }
+
+        private static void AddLobbyUiToBootstrapPrefab(
+            TMP_FontAsset headingFont,
+            TMP_FontAsset bodyFont,
+            Sprite menuBackground)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(BootstrapPrefabPath);
+            try
+            {
+                foreach (string childName in new[]
+                         {
+                             "NetworkLobbyCanvas", "LobbyEventSystem", "LobbyBackgroundCamera"
+                         })
+                {
+                    Transform child = root.transform.Find(childName);
+                    if (child != null)
+                    {
+                        Object.DestroyImmediate(child.gameObject);
+                    }
+                }
+
+                NetworkLobbyUi lobbyUi = root.GetComponent<NetworkLobbyUi>() ??
+                                         root.AddComponent<NetworkLobbyUi>();
+
+                GameObject canvasObject = new GameObject(
+                    "NetworkLobbyCanvas",
+                    typeof(RectTransform),
+                    typeof(Canvas),
+                    typeof(UnityEngine.UI.CanvasScaler),
+                    typeof(UnityEngine.UI.GraphicRaycaster));
+                canvasObject.transform.SetParent(root.transform, false);
+                Canvas canvas = canvasObject.GetComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 100;
+                UnityEngine.UI.CanvasScaler scaler =
+                    canvasObject.GetComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
+                scaler.screenMatchMode = UnityEngine.UI.CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+                scaler.matchWidthOrHeight = 0.5f;
+
+                GameObject eventSystemObject = new GameObject(
+                    "LobbyEventSystem",
+                    typeof(UnityEngine.EventSystems.EventSystem),
+                    typeof(UnityEngine.InputSystem.UI.InputSystemUIInputModule));
+                eventSystemObject.transform.SetParent(root.transform, false);
+                eventSystemObject
+                    .GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>()
+                    .AssignDefaultActions();
+
+                GameObject menuCameraObject = new GameObject(
+                    "LobbyBackgroundCamera",
+                    typeof(Camera));
+                menuCameraObject.transform.SetParent(root.transform, false);
+                Camera menuCamera = menuCameraObject.GetComponent<Camera>();
+                menuCamera.clearFlags = CameraClearFlags.SolidColor;
+                menuCamera.backgroundColor = new Color32(7, 11, 17, 255);
+                menuCamera.cullingMask = 0;
+                menuCamera.depth = -100f;
+                menuCamera.allowHDR = false;
+                menuCamera.allowMSAA = false;
+                menuCamera.useOcclusionCulling = false;
+
+                GameObject background = CreatePanel(
+                    "MenuBackground", canvasObject.transform,
+                    Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+                    Vector2.zero, Vector2.zero, Color.white, false);
+                UnityEngine.UI.Image backgroundImage = background.GetComponent<UnityEngine.UI.Image>();
+                backgroundImage.sprite = menuBackground;
+                backgroundImage.type = UnityEngine.UI.Image.Type.Simple;
+                backgroundImage.preserveAspect = false;
+                backgroundImage.raycastTarget = false;
+                CreatePanel(
+                    "CinematicTint", canvasObject.transform,
+                    Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+                    Vector2.zero, Vector2.zero,
+                    new Color32(4, 8, 13, 54), false);
+                CreatePanel(
+                    "LeftShade", canvasObject.transform,
+                    Vector2.zero, new Vector2(0.46f, 1f), new Vector2(0f, 0.5f),
+                    Vector2.zero, Vector2.zero,
+                    new Color32(5, 10, 17, 176), false);
+                CreatePanel(
+                    "TopRule", canvasObject.transform,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                    Vector2.zero, new Vector2(0f, 5f),
+                    new Color32(255, 85, 0, 255), false);
+
+                GameObject mainMenu = CreateMenuScreen("MainMenu", canvasObject.transform);
+                CreateText(
+                    "Eyebrow", mainMenu.transform, bodyFont,
+                    "КООПЕРАТИВНАЯ СЛУЖБА ДОСТАВКИ", 16f,
+                    new Color32(255, 111, 38, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(120f, -118f), new Vector2(-120f, 30f), FontStyles.Bold);
+                CreateText(
+                    "Title", mainMenu.transform, headingFont,
+                    "ДОСТАВКА\nНЕВОЗМОЖНА", 88f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(115f, -160f), new Vector2(-100f, 220f), FontStyles.Bold);
+                CreateText(
+                    "Tagline", mainMenu.transform, bodyFont,
+                    "ДВА КУРЬЕРА. ОДИН ГРУЗ. СЛИШКОМ УЗКАЯ ДВЕРЬ.", 17f,
+                    new Color32(201, 207, 215, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(120f, -392f), new Vector2(-120f, 34f), FontStyles.Normal);
+                CreatePanel(
+                    "TitleRule", mainMenu.transform,
+                    new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                    new Vector2(120f, -448f), new Vector2(92f, 5f),
+                    new Color32(255, 85, 0, 255), false);
+                UnityEngine.UI.Button playButton = CreateLobbyButton(
+                    "PlayButton", mainMenu.transform, headingFont,
+                    "ИГРАТЬ", new Vector2(120f, -570f),
+                    new Vector2(390f, 68f), new Color32(255, 85, 0, 255), out _);
+                UnityEngine.UI.Button quitButton = CreateLobbyButton(
+                    "QuitButton", mainMenu.transform, headingFont,
+                    "ВЫЙТИ", new Vector2(120f, -654f),
+                    new Vector2(260f, 54f), new Color32(29, 35, 43, 242), out _);
+                CreateText(
+                    "Version", mainMenu.transform, bodyFont,
+                    "ПРОТОТИП 0.1  •  СЕТЕВАЯ СМЕНА", 12f,
+                    new Color32(135, 144, 154, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f),
+                    new Vector2(120f, 52f), new Vector2(-120f, 24f), FontStyles.Normal);
+
+                GameObject playMenu = CreateMenuScreen("PlayMenu", canvasObject.transform);
+                GameObject playCard = CreateMenuSideCard(playMenu.transform, new Vector2(600f, 580f));
+                CreateText(
+                    "Eyebrow", playCard.transform, bodyFont,
+                    "ВЫБОР РЕЖИМА", 14f,
+                    new Color32(255, 111, 38, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(44f, -40f), new Vector2(-44f, 24f), FontStyles.Bold);
+                CreateText(
+                    "Title", playCard.transform, headingFont,
+                    "СЕТЕВАЯ СМЕНА", 48f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -76f), new Vector2(-42f, 70f), FontStyles.Bold);
+                CreateText(
+                    "Hint", playCard.transform, bodyFont,
+                    "Создайте комнату или присоединитесь к напарнику.", 16f,
+                    new Color32(184, 191, 200, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(44f, -154f), new Vector2(-44f, 52f), FontStyles.Normal);
+                UnityEngine.UI.Button hostButton = CreateLobbyButton(
+                    "HostButton", playCard.transform, headingFont,
+                    "СОЗДАТЬ КОМНАТУ", new Vector2(42f, -244f),
+                    new Vector2(516f, 66f), new Color32(255, 85, 0, 255), out _);
+                UnityEngine.UI.Button openJoinButton = CreateLobbyButton(
+                    "OpenJoinButton", playCard.transform, headingFont,
+                    "ПОДКЛЮЧИТЬСЯ", new Vector2(42f, -326f),
+                    new Vector2(516f, 66f), new Color32(38, 45, 54, 250), out _);
+                UnityEngine.UI.Button playBackButton = CreateLobbyButton(
+                    "BackButton", playCard.transform, bodyFont,
+                    "←  НАЗАД", new Vector2(42f, -438f),
+                    new Vector2(210f, 48f), new Color32(24, 30, 37, 235), out _);
+
+                GameObject joinMenu = CreateMenuScreen("JoinMenu", canvasObject.transform);
+                GameObject joinCard = CreateMenuSideCard(joinMenu.transform, new Vector2(620f, 590f));
+                CreateText(
+                    "Eyebrow", joinCard.transform, bodyFont,
+                    "ПОДКЛЮЧЕНИЕ К ЭКИПАЖУ", 14f,
+                    new Color32(255, 111, 38, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(44f, -40f), new Vector2(-44f, 24f), FontStyles.Bold);
+                CreateText(
+                    "Title", joinCard.transform, headingFont,
+                    "НАЙТИ НАПАРНИКА", 44f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -76f), new Vector2(-42f, 66f), FontStyles.Bold);
+                TMP_Text connectionStatus = CreateText(
+                    "ConnectionStatus", joinCard.transform, bodyFont,
+                    "Введите IP компьютера, на котором создана комната.", 15f,
+                    new Color32(184, 191, 200, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(44f, -148f), new Vector2(-44f, 42f), FontStyles.Normal);
+                CreateText(
+                    "AddressLabel", joinCard.transform, bodyFont,
+                    "АДРЕС ХОСТА", 11f,
+                    new Color32(144, 153, 163, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(44f, -224f), new Vector2(-44f, 20f), FontStyles.Bold);
+                TMP_InputField addressInput = CreateLobbyInput(
+                    joinCard.transform, bodyFont,
+                    new Vector2(44f, -254f), new Vector2(532f, 58f));
+                UnityEngine.UI.Button joinButton = CreateLobbyButton(
+                    "JoinButton", joinCard.transform, headingFont,
+                    "ПОДКЛЮЧИТЬСЯ", new Vector2(44f, -338f),
+                    new Vector2(532f, 66f), new Color32(255, 85, 0, 255), out _);
+                UnityEngine.UI.Button joinBackButton = CreateLobbyButton(
+                    "BackButton", joinCard.transform, bodyFont,
+                    "←  НАЗАД", new Vector2(44f, -454f),
+                    new Vector2(210f, 48f), new Color32(24, 30, 37, 235), out _);
+
+                GameObject lobbyPanel = CreateMenuScreen("Lobby", canvasObject.transform);
+                GameObject lobbyCard = CreateMenuSideCard(lobbyPanel.transform, new Vector2(700f, 670f));
+                CreateText(
+                    "Eyebrow", lobbyCard.transform, bodyFont,
+                    "ДИСПЕТЧЕРСКАЯ  /  ПОДГОТОВКА К ВЫЕЗДУ", 14f,
+                    new Color32(255, 111, 38, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -42f), new Vector2(-42f, 24f), FontStyles.Bold);
+                TMP_Text lobbyTitle = CreateText(
+                    "LobbyTitle", lobbyCard.transform, headingFont,
+                    "ЭКИПАЖ  1/2", 46f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -78f), new Vector2(-42f, 68f), FontStyles.Bold);
+                GameObject roster = CreatePanel(
+                    "Roster", lobbyCard.transform,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                    new Vector2(0f, -176f), new Vector2(-84f, 156f),
+                    new Color32(12, 17, 23, 238), false);
+                AddOutline(roster, new Color32(69, 78, 88, 255), new Vector2(2f, -2f));
+                TMP_Text playerList = CreateText(
+                    "PlayerList", roster.transform, headingFont,
+                    "ПОДКЛЮЧЕНИЕ ИГРОКА...", 22f,
+                    Color.white, TextAlignmentOptions.TopLeft,
+                    Vector2.zero, Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(24f, -20f), new Vector2(-24f, -20f), FontStyles.Bold);
+                TMP_Text lobbyStatus = CreateText(
+                    "LobbyStatus", lobbyCard.transform, bodyFont,
+                    "ОЖИДАЕМ ВТОРОГО КУРЬЕРА", 13f,
+                    new Color32(190, 196, 204, 255), TextAlignmentOptions.Center,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                    new Vector2(0f, -354f), new Vector2(-84f, 28f), FontStyles.Bold);
+                UnityEngine.UI.Button readyButton = CreateLobbyButton(
+                    "ReadyButton", lobbyCard.transform, headingFont,
+                    "ГОТОВ", new Vector2(42f, -414f),
+                    new Vector2(616f, 62f), new Color32(255, 85, 0, 255),
+                    out TMP_Text readyButtonText);
+                UnityEngine.UI.Button startButton = CreateLobbyButton(
+                    "StartButton", lobbyCard.transform, headingFont,
+                    "НАЧАТЬ СМЕНУ", new Vector2(42f, -492f),
+                    new Vector2(616f, 62f), new Color32(38, 45, 54, 250),
+                    out TMP_Text startButtonText);
+                UnityEngine.UI.Button disconnectButton = CreateLobbyButton(
+                    "DisconnectButton", lobbyCard.transform, bodyFont,
+                    "ОТКЛЮЧИТЬСЯ", new Vector2(42f, -584f),
+                    new Vector2(220f, 46f), new Color32(24, 30, 37, 235), out _);
+
+                playMenu.SetActive(false);
+                joinMenu.SetActive(false);
+                lobbyPanel.SetActive(false);
+
+                SerializedObject serializedLobby = new SerializedObject(lobbyUi);
+                serializedLobby.FindProperty("lobbyCanvas").objectReferenceValue = canvas;
+                serializedLobby.FindProperty("menuCamera").objectReferenceValue = menuCamera;
+                serializedLobby.FindProperty("mainMenuPanel").objectReferenceValue = mainMenu;
+                serializedLobby.FindProperty("playMenuPanel").objectReferenceValue = playMenu;
+                serializedLobby.FindProperty("joinMenuPanel").objectReferenceValue = joinMenu;
+                serializedLobby.FindProperty("lobbyPanel").objectReferenceValue = lobbyPanel;
+                serializedLobby.FindProperty("playButton").objectReferenceValue = playButton;
+                serializedLobby.FindProperty("playBackButton").objectReferenceValue = playBackButton;
+                serializedLobby.FindProperty("openJoinButton").objectReferenceValue = openJoinButton;
+                serializedLobby.FindProperty("joinBackButton").objectReferenceValue = joinBackButton;
+                serializedLobby.FindProperty("addressInput").objectReferenceValue = addressInput;
+                serializedLobby.FindProperty("hostButton").objectReferenceValue = hostButton;
+                serializedLobby.FindProperty("joinButton").objectReferenceValue = joinButton;
+                serializedLobby.FindProperty("quitButton").objectReferenceValue = quitButton;
+                serializedLobby.FindProperty("connectionStatusText").objectReferenceValue = connectionStatus;
+                serializedLobby.FindProperty("lobbyTitleText").objectReferenceValue = lobbyTitle;
+                serializedLobby.FindProperty("playerListText").objectReferenceValue = playerList;
+                serializedLobby.FindProperty("lobbyStatusText").objectReferenceValue = lobbyStatus;
+                serializedLobby.FindProperty("readyButton").objectReferenceValue = readyButton;
+                serializedLobby.FindProperty("readyButtonText").objectReferenceValue = readyButtonText;
+                serializedLobby.FindProperty("startButton").objectReferenceValue = startButton;
+                serializedLobby.FindProperty("startButtonText").objectReferenceValue = startButtonText;
+                serializedLobby.FindProperty("disconnectButton").objectReferenceValue = disconnectButton;
+                serializedLobby.ApplyModifiedPropertiesWithoutUndo();
+
+                PrefabUtility.SaveAsPrefabAsset(root, BootstrapPrefabPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        private static GameObject CreateMenuScreen(string name, Transform parent)
+        {
+            return CreateEmptyUi(
+                name, parent,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero);
+        }
+
+        private static GameObject CreateMenuSideCard(Transform parent, Vector2 size)
+        {
+            GameObject card = CreatePanel(
+                "TerminalCard", parent,
+                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                new Vector2(110f, 0f), size,
+                new Color32(18, 24, 31, 244), true);
+            AddOutline(card, new Color32(76, 86, 97, 255), new Vector2(2f, -2f));
+            CreatePanel(
+                "OrangeRib", card.transform,
+                Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+                Vector2.zero, new Vector2(7f, 0f),
+                new Color32(255, 85, 0, 255), false);
+            return card;
+        }
+
+        private static void AddLobbyUiToBootstrapPrefab(
+            TMP_FontAsset headingFont,
+            TMP_FontAsset bodyFont)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(BootstrapPrefabPath);
+            try
+            {
+                Transform oldCanvas = root.transform.Find("NetworkLobbyCanvas");
+                if (oldCanvas != null)
+                {
+                    Object.DestroyImmediate(oldCanvas.gameObject);
+                }
+
+                Transform oldEventSystem = root.transform.Find("LobbyEventSystem");
+                if (oldEventSystem != null)
+                {
+                    Object.DestroyImmediate(oldEventSystem.gameObject);
+                }
+
+                Transform oldMenuCamera = root.transform.Find("LobbyBackgroundCamera");
+                if (oldMenuCamera != null)
+                {
+                    Object.DestroyImmediate(oldMenuCamera.gameObject);
+                }
+
+                NetworkLobbyUi lobbyUi = root.GetComponent<NetworkLobbyUi>();
+                if (lobbyUi == null)
+                {
+                    lobbyUi = root.AddComponent<NetworkLobbyUi>();
+                }
+
+                GameObject canvasObject = new GameObject(
+                    "NetworkLobbyCanvas",
+                    typeof(RectTransform),
+                    typeof(Canvas),
+                    typeof(UnityEngine.UI.CanvasScaler),
+                    typeof(UnityEngine.UI.GraphicRaycaster));
+                canvasObject.transform.SetParent(root.transform, false);
+                Canvas canvas = canvasObject.GetComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 100;
+                UnityEngine.UI.CanvasScaler scaler =
+                    canvasObject.GetComponent<UnityEngine.UI.CanvasScaler>();
+                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
+                scaler.screenMatchMode = UnityEngine.UI.CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+                scaler.matchWidthOrHeight = 0.5f;
+
+                GameObject eventSystemObject = new GameObject(
+                    "LobbyEventSystem",
+                    typeof(UnityEngine.EventSystems.EventSystem),
+                    typeof(UnityEngine.InputSystem.UI.InputSystemUIInputModule));
+                eventSystemObject.transform.SetParent(root.transform, false);
+                eventSystemObject
+                    .GetComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>()
+                    .AssignDefaultActions();
+
+                GameObject menuCameraObject = new GameObject(
+                    "LobbyBackgroundCamera",
+                    typeof(Camera));
+                menuCameraObject.transform.SetParent(root.transform, false);
+                Camera menuCamera = menuCameraObject.GetComponent<Camera>();
+                menuCamera.clearFlags = CameraClearFlags.SolidColor;
+                menuCamera.backgroundColor = new Color32(9, 12, 15, 255);
+                menuCamera.cullingMask = 0;
+                menuCamera.depth = -100f;
+                menuCamera.allowHDR = false;
+                menuCamera.allowMSAA = false;
+                menuCamera.useOcclusionCulling = false;
+
+                GameObject mainMenu = CreateLobbyBackdrop("MainMenu", canvasObject.transform);
+                GameObject mainCard = CreateLobbyCard(mainMenu.transform, new Vector2(620f, 650f));
+                CreateText(
+                    "Eyebrow", mainCard.transform, bodyFont,
+                    "СЛУЖБА ДОСТАВКИ  /  СЕТЕВОЙ ТЕРМИНАЛ", 14f,
+                    new Color32(255, 100, 25, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -42f), new Vector2(-42f, 24f), FontStyles.Bold);
+                CreateText(
+                    "Title", mainCard.transform, headingFont,
+                    "ДОСТАВКА\nНЕВОЗМОЖНА", 58f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -78f), new Vector2(-42f, 142f), FontStyles.Bold);
+                TMP_Text connectionStatus = CreateText(
+                    "ConnectionStatus", mainCard.transform, bodyFont,
+                    "СЕТЕВОЙ КООПЕРАТИВ НА ДВОИХ", 15f,
+                    new Color32(166, 171, 177, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -230f), new Vector2(-42f, 28f), FontStyles.Normal);
+                CreateText(
+                    "AddressLabel", mainCard.transform, bodyFont,
+                    "АДРЕС СЕРВЕРА", 11f,
+                    new Color32(150, 155, 161, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -290f), new Vector2(-42f, 20f), FontStyles.Bold);
+
+                TMP_InputField addressInput = CreateLobbyInput(
+                    mainCard.transform,
+                    bodyFont,
+                    new Vector2(42f, -320f),
+                    new Vector2(-84f, 54f));
+                UnityEngine.UI.Button hostButton = CreateLobbyButton(
+                    "HostButton", mainCard.transform, headingFont,
+                    "СОЗДАТЬ ИГРУ", new Vector2(42f, -398f),
+                    new Vector2(536f, 62f), new Color32(255, 85, 0, 255),
+                    out _);
+                UnityEngine.UI.Button joinButton = CreateLobbyButton(
+                    "JoinButton", mainCard.transform, headingFont,
+                    "ПОДКЛЮЧИТЬСЯ", new Vector2(42f, -476f),
+                    new Vector2(536f, 62f), new Color32(45, 50, 56, 255),
+                    out _);
+                UnityEngine.UI.Button quitButton = CreateLobbyButton(
+                    "QuitButton", mainCard.transform, bodyFont,
+                    "ВЫЙТИ", new Vector2(42f, -566f),
+                    new Vector2(180f, 42f), new Color32(31, 35, 40, 255),
+                    out _);
+
+                GameObject lobbyPanel = CreateLobbyBackdrop("Lobby", canvasObject.transform);
+                GameObject lobbyCard = CreateLobbyCard(lobbyPanel.transform, new Vector2(700f, 650f));
+                CreateText(
+                    "Eyebrow", lobbyCard.transform, bodyFont,
+                    "ДИСПЕТЧЕРСКАЯ  /  ПОДГОТОВКА К ВЫЕЗДУ", 14f,
+                    new Color32(255, 100, 25, 255), TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -42f), new Vector2(-42f, 24f), FontStyles.Bold);
+                TMP_Text lobbyTitle = CreateText(
+                    "LobbyTitle", lobbyCard.transform, headingFont,
+                    "ЭКИПАЖ  1/2", 44f,
+                    Color.white, TextAlignmentOptions.Left,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(42f, -78f), new Vector2(-42f, 64f), FontStyles.Bold);
+                GameObject roster = CreatePanel(
+                    "Roster", lobbyCard.transform,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                    new Vector2(0f, -170f), new Vector2(-84f, 150f),
+                    new Color32(15, 18, 21, 255), false);
+                AddOutline(roster, new Color32(65, 70, 76, 255), new Vector2(2f, -2f));
+                TMP_Text playerList = CreateText(
+                    "PlayerList", roster.transform, headingFont,
+                    "ПОДКЛЮЧЕНИЕ ИГРОКА...", 22f,
+                    Color.white, TextAlignmentOptions.TopLeft,
+                    Vector2.zero, Vector2.one, new Vector2(0f, 1f),
+                    new Vector2(24f, -20f), new Vector2(-24f, -20f), FontStyles.Bold);
+                TMP_Text lobbyStatus = CreateText(
+                    "LobbyStatus", lobbyCard.transform, bodyFont,
+                    "ОЖИДАЕМ ВТОРОГО КУРЬЕРА", 13f,
+                    new Color32(180, 184, 189, 255), TextAlignmentOptions.Center,
+                    new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                    new Vector2(0f, -344f), new Vector2(-84f, 28f), FontStyles.Bold);
+                UnityEngine.UI.Button readyButton = CreateLobbyButton(
+                    "ReadyButton", lobbyCard.transform, headingFont,
+                    "ГОТОВ", new Vector2(42f, -404f),
+                    new Vector2(616f, 62f), new Color32(255, 85, 0, 255),
+                    out TMP_Text readyButtonText);
+                UnityEngine.UI.Button startButton = CreateLobbyButton(
+                    "StartButton", lobbyCard.transform, headingFont,
+                    "НАЧАТЬ СМЕНУ", new Vector2(42f, -482f),
+                    new Vector2(616f, 62f), new Color32(45, 50, 56, 255),
+                    out TMP_Text startButtonText);
+                UnityEngine.UI.Button disconnectButton = CreateLobbyButton(
+                    "DisconnectButton", lobbyCard.transform, bodyFont,
+                    "ОТКЛЮЧИТЬСЯ", new Vector2(42f, -570f),
+                    new Vector2(210f, 42f), new Color32(31, 35, 40, 255),
+                    out _);
+
+                lobbyPanel.SetActive(false);
+
+                SerializedObject serializedLobby = new SerializedObject(lobbyUi);
+                serializedLobby.FindProperty("lobbyCanvas").objectReferenceValue = canvas;
+                serializedLobby.FindProperty("menuCamera").objectReferenceValue = menuCamera;
+                serializedLobby.FindProperty("mainMenuPanel").objectReferenceValue = mainMenu;
+                serializedLobby.FindProperty("lobbyPanel").objectReferenceValue = lobbyPanel;
+                serializedLobby.FindProperty("addressInput").objectReferenceValue = addressInput;
+                serializedLobby.FindProperty("hostButton").objectReferenceValue = hostButton;
+                serializedLobby.FindProperty("joinButton").objectReferenceValue = joinButton;
+                serializedLobby.FindProperty("quitButton").objectReferenceValue = quitButton;
+                serializedLobby.FindProperty("connectionStatusText").objectReferenceValue = connectionStatus;
+                serializedLobby.FindProperty("lobbyTitleText").objectReferenceValue = lobbyTitle;
+                serializedLobby.FindProperty("playerListText").objectReferenceValue = playerList;
+                serializedLobby.FindProperty("lobbyStatusText").objectReferenceValue = lobbyStatus;
+                serializedLobby.FindProperty("readyButton").objectReferenceValue = readyButton;
+                serializedLobby.FindProperty("readyButtonText").objectReferenceValue = readyButtonText;
+                serializedLobby.FindProperty("startButton").objectReferenceValue = startButton;
+                serializedLobby.FindProperty("startButtonText").objectReferenceValue = startButtonText;
+                serializedLobby.FindProperty("disconnectButton").objectReferenceValue = disconnectButton;
+                serializedLobby.ApplyModifiedPropertiesWithoutUndo();
+
+                PrefabUtility.SaveAsPrefabAsset(root, BootstrapPrefabPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        private static GameObject CreateLobbyBackdrop(string name, Transform parent)
+        {
+            GameObject backdrop = CreatePanel(
+                name, parent,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero,
+                new Color32(9, 12, 15, 248), false);
+            CreatePanel(
+                "TopRule", backdrop.transform,
+                new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f),
+                Vector2.zero, new Vector2(0f, 6f),
+                new Color32(255, 85, 0, 255), false);
+            return backdrop;
+        }
+
+        private static GameObject CreateLobbyCard(Transform parent, Vector2 size)
+        {
+            GameObject card = CreatePanel(
+                "TerminalCard", parent,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, size,
+                new Color32(25, 29, 33, 255), true);
+            AddOutline(card, new Color32(75, 81, 88, 255), new Vector2(2f, -2f));
+            CreatePanel(
+                "OrangeRib", card.transform,
+                Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+                Vector2.zero, new Vector2(8f, 0f),
+                new Color32(255, 85, 0, 255), false);
+            return card;
+        }
+
+        private static TMP_InputField CreateLobbyInput(
+            Transform parent,
+            TMP_FontAsset font,
+            Vector2 position,
+            Vector2 size)
+        {
+            GameObject root = CreatePanel(
+                "AddressInput", parent,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                position, size,
+                new Color32(10, 13, 16, 255), false);
+            AddOutline(root, new Color32(85, 91, 98, 255), new Vector2(2f, -2f));
+            TMP_Text text = CreateText(
+                "Text", root.transform, font, "127.0.0.1", 18f,
+                Color.white, TextAlignmentOptions.Left,
+                Vector2.zero, Vector2.one, new Vector2(0f, 0.5f),
+                new Vector2(18f, 0f), new Vector2(-18f, 0f), FontStyles.Normal);
+            TMP_Text placeholder = CreateText(
+                "Placeholder", root.transform, font, "127.0.0.1", 18f,
+                new Color32(90, 95, 102, 255), TextAlignmentOptions.Left,
+                Vector2.zero, Vector2.one, new Vector2(0f, 0.5f),
+                new Vector2(18f, 0f), new Vector2(-18f, 0f), FontStyles.Italic);
+            TMP_InputField input = root.AddComponent<TMP_InputField>();
+            root.GetComponent<UnityEngine.UI.Image>().raycastTarget = true;
+            input.textComponent = (TextMeshProUGUI)text;
+            input.placeholder = (TextMeshProUGUI)placeholder;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            input.text = "127.0.0.1";
+            return input;
+        }
+
+        private static UnityEngine.UI.Button CreateLobbyButton(
+            string name,
+            Transform parent,
+            TMP_FontAsset font,
+            string label,
+            Vector2 position,
+            Vector2 size,
+            Color color,
+            out TMP_Text labelText)
+        {
+            GameObject root = CreatePanel(
+                name, parent,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                position, size, color, true);
+            AddOutline(root, new Color32(95, 101, 108, 255), new Vector2(2f, -2f));
+            UnityEngine.UI.Button button = root.AddComponent<UnityEngine.UI.Button>();
+            UnityEngine.UI.Image buttonImage = root.GetComponent<UnityEngine.UI.Image>();
+            buttonImage.raycastTarget = true;
+            button.targetGraphic = buttonImage;
+            UnityEngine.UI.ColorBlock colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 1f, 1f, 0.82f);
+            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+            colors.disabledColor = new Color(0.35f, 0.35f, 0.35f, 0.7f);
+            button.colors = colors;
+            labelText = CreateText(
+                "Label", root.transform, font, label, 20f,
+                Color.white, TextAlignmentOptions.Center,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero, FontStyles.Bold);
+            return button;
         }
 
         private static void RegisterCargoPrefabs(params GameObject[] cargoPrefabs)
@@ -1303,6 +1859,11 @@ namespace DeliveryImpossible.Editor
             if (order == null)
             {
                 order = orderObject.AddComponent<NetworkDeliveryOrder>();
+            }
+
+            if (orderObject.GetComponent<NetworkSessionState>() == null)
+            {
+                orderObject.AddComponent<NetworkSessionState>();
             }
 
             SerializedObject serializedOrder = new SerializedObject(order);
