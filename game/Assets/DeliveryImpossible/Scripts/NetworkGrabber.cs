@@ -145,18 +145,18 @@ namespace DeliveryImpossible.Interaction
                 if (held.NeedsMoreHolders)
                 {
                     action = "ОТПУСТИТЬ ГРУЗ";
-                    hint = "ГРУЗ БУДЕТ БРОШЕН";
+                    hint = GetCargoConditionHint(held, "ГРУЗ БУДЕТ БРОШЕН");
                     warning = "НУЖЕН ВТОРОЙ ИГРОК  |  ТЯЖЁЛЫЙ ГРУЗ";
                 }
                 else if (held.RequiresTeam)
                 {
                     action = "ОТПУСТИТЬ ГРУЗ";
-                    hint = "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ";
+                    hint = GetCargoConditionHint(held, "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ");
                 }
                 else
                 {
                     action = "ОТПУСТИТЬ ГРУЗ";
-                    hint = "ГРУЗ БУДЕТ БРОШЕН";
+                    hint = GetCargoConditionHint(held, "ГРУЗ БУДЕТ БРОШЕН");
                 }
             }
             else if (hovered != null)
@@ -175,7 +175,7 @@ namespace DeliveryImpossible.Interaction
                 else
                 {
                     action = "ВЗЯТЬ ГРУЗ";
-                    hint = "ПЕРЕНЕСТИ ПРЕДМЕТ";
+                    hint = GetCargoConditionHint(hovered, "ПЕРЕНЕСТИ ПРЕДМЕТ");
                 }
             }
 
@@ -199,6 +199,19 @@ namespace DeliveryImpossible.Interaction
             {
                 cooperationWarningPanel.SetActive(!string.IsNullOrEmpty(warning));
             }
+        }
+
+        private static string GetCargoConditionHint(NetworkGrabbable cargo, string fallback)
+        {
+            NetworkFragileCargo fragileCargo = cargo.GetComponent<NetworkFragileCargo>();
+            if (fragileCargo == null)
+            {
+                return fallback;
+            }
+
+            return fragileCargo.IsBroken
+                ? "ГРУЗ РАЗБИТ"
+                : $"ЦЕЛОСТНОСТЬ: {fragileCargo.IntegrityPercent}%";
         }
 
         private void GetDesiredPose(out Vector3 position, out Quaternion rotation)

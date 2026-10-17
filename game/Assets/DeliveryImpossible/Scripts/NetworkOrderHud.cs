@@ -24,6 +24,7 @@ namespace DeliveryImpossible.UI
         [SerializeField] private GameObject orderPanel;
 
         [Header("Order manifest")]
+        [SerializeField] private TMP_Text orderTitleText;
         [SerializeField] private TMP_Text objectiveText;
         [SerializeField] private TMP_Text objectiveHintText;
         [SerializeField] private TMP_Text orderStampText;
@@ -90,20 +91,23 @@ namespace DeliveryImpossible.UI
             }
 
             float progress = order.PlacementNormalized;
+            SetText(
+                orderTitleText,
+                $"{order.CurrentOrderName.ToUpperInvariant()}  ·  {order.CurrentOrderNumber}/{order.TotalOrders}");
             switch (order.State)
             {
                 case DeliveryOrderState.AwaitingPickup:
-                    objectiveText.text = "ЗАБЕРИТЕ ТЯЖЁЛЫЙ ГРУЗ";
+                    objectiveText.text = $"ЗАБЕРИТЕ {order.CurrentOrderName.ToUpperInvariant()}";
                     SetText(objectiveHintText, "Подойдите к грузу и нажмите E.");
-                    SetText(orderStampText, "ТЯЖЁЛОЕ");
+                    SetText(orderStampText, order.CurrentOrderIsFragile ? "ХРУПКОЕ" : "ТЯЖЁЛОЕ");
                     SetStage(stageOneBackground, stageOneStatus, StageVisual.Active);
                     SetStage(stageTwoBackground, stageTwoStatus, StageVisual.Pending);
                     SetStage(stageThreeBackground, stageThreeStatus, StageVisual.Pending);
                     SetPlacementProgress(0f, false);
                     break;
 
-                case DeliveryOrderState.InTransit when progress > 0f:
-                    objectiveText.text = "ОСТАВЬТЕ ГРУЗ В ЗОНЕ";
+                case DeliveryOrderState.ReadyForDelivery when progress > 0f:
+                    objectiveText.text = $"ОСТАВЬТЕ {order.CurrentOrderName.ToUpperInvariant()} В ЗОНЕ";
                     SetText(objectiveHintText, "Не двигайте груз до подтверждения.");
                     SetText(orderStampText, "ПРИЁМКА");
                     SetStage(stageOneBackground, stageOneStatus, StageVisual.Done);
@@ -112,10 +116,24 @@ namespace DeliveryImpossible.UI
                     SetPlacementProgress(progress, true);
                     break;
 
+                case DeliveryOrderState.ReadyForDelivery:
+                    objectiveText.text = $"ДОСТАВЬТЕ {order.CurrentOrderName.ToUpperInvariant()} В ЗОНУ";
+                    SetText(objectiveHintText, "Поставьте груз внутрь зелёной разметки.");
+                    SetText(orderStampText, "ПРИЁМКА");
+                    SetStage(stageOneBackground, stageOneStatus, StageVisual.Done);
+                    SetStage(stageTwoBackground, stageTwoStatus, StageVisual.Done);
+                    SetStage(stageThreeBackground, stageThreeStatus, StageVisual.Active);
+                    SetPlacementProgress(0f, false);
+                    break;
+
                 case DeliveryOrderState.InTransit:
-                    objectiveText.text = "ПРОНЕСИТЕ ГРУЗ ЧЕРЕЗ ДВЕРЬ";
-                    SetText(objectiveHintText, "Балансируйте груз вместе с напарником.");
-                    SetText(orderStampText, "ХРУПКОЕ");
+                    objectiveText.text = $"ПРОНЕСИТЕ {order.CurrentOrderName.ToUpperInvariant()} ЧЕРЕЗ ДВЕРЬ";
+                    SetText(
+                        objectiveHintText,
+                        order.CurrentOrderIsFragile
+                            ? $"Не ударяйте груз. Целостность: {Mathf.RoundToInt(order.CurrentIntegrity * 100f)}%."
+                            : "Балансируйте груз вместе с напарником.");
+                    SetText(orderStampText, order.CurrentOrderIsFragile ? "ХРУПКОЕ" : "ТЯЖЁЛОЕ");
                     SetStage(stageOneBackground, stageOneStatus, StageVisual.Done);
                     SetStage(stageTwoBackground, stageTwoStatus, StageVisual.Active);
                     SetStage(stageThreeBackground, stageThreeStatus, StageVisual.Pending);
@@ -124,12 +142,29 @@ namespace DeliveryImpossible.UI
 
                 case DeliveryOrderState.Completed:
                     objectiveText.text = "ЗАКАЗ ВЫПОЛНЕН";
-                    SetText(objectiveHintText, $"Новый заказ через {order.RestartSecondsRemaining} сек.");
-                    SetText(orderStampText, "ПРИНЯТО");
+                    SetText(
+                        objectiveHintText,
+                        order.CurrentOrderIsFragile
+                            ? $"ОЦЕНКА: {order.LastGrade} · ЦЕЛОСТНОСТЬ: {Mathf.RoundToInt(order.CurrentIntegrity * 100f)}% · ДАЛЬШЕ: {order.TransitionSecondsRemaining} СЕК."
+                            : $"ОЦЕНКА: {order.LastGrade} · {NetworkDeliveryOrder.FormatTime(order.ElapsedSeconds)} · ПАДЕНИЯ: {order.DropCount} · ДАЛЬШЕ: {order.TransitionSecondsRemaining} СЕК.");
+                    SetText(orderStampText, order.LastGrade.ToString());
                     SetStage(stageOneBackground, stageOneStatus, StageVisual.Done);
                     SetStage(stageTwoBackground, stageTwoStatus, StageVisual.Done);
                     SetStage(stageThreeBackground, stageThreeStatus, StageVisual.Done);
                     SetPlacementProgress(1f, false);
+                    break;
+
+                case DeliveryOrderState.ShiftCompleted:
+                    SetText(orderTitleText, "СМЕНА ЗАВЕРШЕНА");
+                    objectiveText.text = $"ВЫПОЛНЕНО {order.CompletedOrders}/{order.TotalOrders}";
+                    SetText(
+                        objectiveHintText,
+                        $"ИТОГ: {order.TotalScore} ОЧКОВ · НОВАЯ СМЕНА: {order.TransitionSecondsRemaining} СЕК.");
+                    SetText(orderStampText, "ИТОГ");
+                    SetStage(stageOneBackground, stageOneStatus, StageVisual.Done);
+                    SetStage(stageTwoBackground, stageTwoStatus, StageVisual.Done);
+                    SetStage(stageThreeBackground, stageThreeStatus, StageVisual.Done);
+                    SetPlacementProgress(0f, false);
                     break;
             }
         }

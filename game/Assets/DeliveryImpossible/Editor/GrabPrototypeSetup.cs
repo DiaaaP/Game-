@@ -23,8 +23,12 @@ namespace DeliveryImpossible.Editor
         private const string BootstrapPrefabPath = PrefabsFolder + "/NetworkBootstrap.prefab";
         private const string CargoPrefabPath = PrefabsFolder + "/NetworkCargo.prefab";
         private const string HeavyCargoPrefabPath = PrefabsFolder + "/HeavyNetworkCargo.prefab";
+        private const string FragileCargoPrefabPath = PrefabsFolder + "/FragileTelevision.prefab";
         private const string CargoMaterialPath = MaterialsFolder + "/CargoPrototype.mat";
         private const string HeavyCargoMaterialPath = MaterialsFolder + "/HeavyCargoPrototype.mat";
+        private const string FragileBodyMaterialPath = MaterialsFolder + "/FragileBodyPrototype.mat";
+        private const string FragileScreenMaterialPath = MaterialsFolder + "/FragileScreenPrototype.mat";
+        private const string FragileDamageMaterialPath = MaterialsFolder + "/FragileDamagePrototype.mat";
         private const string ObstacleMaterialPath = MaterialsFolder + "/ObstaclePrototype.mat";
         private const string DeliveryZoneMaterialPath = MaterialsFolder + "/DeliveryZonePrototype.mat";
         private const string OswaldSourceFontPath = FontsFolder + "/Source/Oswald-Variable.ttf";
@@ -52,6 +56,18 @@ namespace DeliveryImpossible.Editor
                 HeavyCargoMaterialPath,
                 "Heavy Cargo Prototype",
                 new Color(0.18f, 0.42f, 0.9f, 1f));
+            Material fragileBodyMaterial = GetOrCreateMaterial(
+                FragileBodyMaterialPath,
+                "Fragile Television Body",
+                new Color(0.055f, 0.06f, 0.07f, 1f));
+            Material fragileScreenMaterial = GetOrCreateMaterial(
+                FragileScreenMaterialPath,
+                "Fragile Television Screen",
+                new Color(0.05f, 0.25f, 0.35f, 1f));
+            Material fragileDamageMaterial = GetOrCreateMaterial(
+                FragileDamageMaterialPath,
+                "Fragile Television Damage",
+                new Color(0.9f, 0.08f, 0.025f, 1f));
             Material obstacleMaterial = GetOrCreateMaterial(
                 ObstacleMaterialPath,
                 "Obstacle Prototype",
@@ -72,11 +88,16 @@ namespace DeliveryImpossible.Editor
             EnsureHudCharacters(bodyFont);
             GameObject cargoPrefab = GetOrCreateCargoPrefab(cargoMaterial);
             GameObject heavyCargoPrefab = GetOrCreateHeavyCargoPrefab(heavyCargoMaterial);
+            GameObject fragileCargoPrefab = GetOrCreateFragileCargoPrefab(
+                fragileBodyMaterial,
+                fragileScreenMaterial,
+                fragileDamageMaterial);
             AddGrabberToPlayerPrefab(headingFont, bodyFont);
-            RegisterCargoPrefabs(cargoPrefab, heavyCargoPrefab);
+            RegisterCargoPrefabs(cargoPrefab, heavyCargoPrefab, fragileCargoPrefab);
             AddCargoToTestScene(
                 cargoPrefab,
                 heavyCargoPrefab,
+                fragileCargoPrefab,
                 obstacleMaterial,
                 deliveryZoneMaterial);
 
@@ -94,7 +115,8 @@ namespace DeliveryImpossible.Editor
                 "держит хват стабильность отличная помощь принято приёмка тяжёлое новый сек " +
                 "дело транспортная накладная категория груза текущая цель маршрутный лист " +
                 "сдано работе поставить забрать доставить балансируйте вместе подойдите нажмите " +
-                "перенести предмет груз будет брошен свою сторону ожидаем подключения 0123456789%:!№—.«»";
+                "перенести предмет груз будет брошен свою сторону ожидаем подключения " +
+                "доставьте внутрь разметки падения повтор целостность разбит 0123456789%:!№—.«»";
 
             if (fontAsset == null)
             {
@@ -277,6 +299,159 @@ namespace DeliveryImpossible.Editor
             }
         }
 
+        private static GameObject GetOrCreateFragileCargoPrefab(
+            Material bodyMaterial,
+            Material screenMaterial,
+            Material damageMaterial)
+        {
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(FragileCargoPrefabPath);
+            if (existing != null)
+            {
+                UpgradeFragileCargoPrefab(bodyMaterial, screenMaterial, damageMaterial);
+                return AssetDatabase.LoadAssetAtPath<GameObject>(FragileCargoPrefabPath);
+            }
+
+            GameObject root = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            root.name = "FragileTelevision";
+
+            try
+            {
+                ConfigureFragileCargo(root, bodyMaterial, screenMaterial, damageMaterial);
+                return PrefabUtility.SaveAsPrefabAsset(root, FragileCargoPrefabPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        private static void UpgradeFragileCargoPrefab(
+            Material bodyMaterial,
+            Material screenMaterial,
+            Material damageMaterial)
+        {
+            GameObject root = PrefabUtility.LoadPrefabContents(FragileCargoPrefabPath);
+            try
+            {
+                ConfigureFragileCargo(root, bodyMaterial, screenMaterial, damageMaterial);
+                PrefabUtility.SaveAsPrefabAsset(root, FragileCargoPrefabPath);
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        private static void ConfigureFragileCargo(
+            GameObject root,
+            Material bodyMaterial,
+            Material screenMaterial,
+            Material damageMaterial)
+        {
+            root.transform.localScale = new Vector3(1.8f, 1.15f, 0.32f);
+            root.GetComponent<Renderer>().sharedMaterial = bodyMaterial;
+
+            Rigidbody body = root.GetComponent<Rigidbody>();
+            if (body == null)
+            {
+                body = root.AddComponent<Rigidbody>();
+            }
+
+            body.mass = 12f;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            body.maxAngularVelocity = 16f;
+
+            if (root.GetComponent<NetworkIdentity>() == null)
+            {
+                root.AddComponent<NetworkIdentity>();
+            }
+
+            NetworkGrabbable grabbable = root.GetComponent<NetworkGrabbable>();
+            if (grabbable == null)
+            {
+                grabbable = root.AddComponent<NetworkGrabbable>();
+            }
+
+            grabbable.syncDirection = SyncDirection.ServerToClient;
+            grabbable.syncInterval = 1f / 30f;
+            ConfigureGrabbable(grabbable, 2, 1, 1f);
+
+            GameObject screen = GetOrCreateVisualCube(
+                root.transform,
+                "Screen",
+                new Vector3(0f, 0.03f, -0.54f),
+                new Vector3(0.88f, 0.77f, 0.08f),
+                Quaternion.identity,
+                screenMaterial);
+
+            Transform existingDamage = root.transform.Find("Damage Visual");
+            GameObject damageVisual = existingDamage != null
+                ? existingDamage.gameObject
+                : new GameObject("Damage Visual");
+            damageVisual.transform.SetParent(root.transform, false);
+            damageVisual.transform.localPosition = Vector3.zero;
+            damageVisual.transform.localRotation = Quaternion.identity;
+            damageVisual.transform.localScale = Vector3.one;
+
+            GetOrCreateVisualCube(
+                damageVisual.transform,
+                "Crack A",
+                new Vector3(0f, 0.03f, -0.6f),
+                new Vector3(0.72f, 0.035f, 0.025f),
+                Quaternion.Euler(0f, 0f, 32f),
+                damageMaterial);
+            GetOrCreateVisualCube(
+                damageVisual.transform,
+                "Crack B",
+                new Vector3(0.08f, 0.02f, -0.61f),
+                new Vector3(0.58f, 0.03f, 0.025f),
+                Quaternion.Euler(0f, 0f, -38f),
+                damageMaterial);
+            damageVisual.SetActive(false);
+
+            NetworkFragileCargo fragileCargo = root.GetComponent<NetworkFragileCargo>();
+            if (fragileCargo == null)
+            {
+                fragileCargo = root.AddComponent<NetworkFragileCargo>();
+            }
+
+            SerializedObject serializedFragile = new SerializedObject(fragileCargo);
+            SerializedProperty renderers = serializedFragile.FindProperty("damageRenderers");
+            renderers.arraySize = 1;
+            renderers.GetArrayElementAtIndex(0).objectReferenceValue = screen.GetComponent<Renderer>();
+            serializedFragile.FindProperty("damageVisual").objectReferenceValue = damageVisual;
+            serializedFragile.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static GameObject GetOrCreateVisualCube(
+            Transform parent,
+            string name,
+            Vector3 localPosition,
+            Vector3 localScale,
+            Quaternion localRotation,
+            Material material)
+        {
+            Transform existing = parent.Find(name);
+            GameObject visual = existing != null
+                ? existing.gameObject
+                : GameObject.CreatePrimitive(PrimitiveType.Cube);
+            visual.name = name;
+            visual.transform.SetParent(parent, false);
+            visual.transform.localPosition = localPosition;
+            visual.transform.localRotation = localRotation;
+            visual.transform.localScale = localScale;
+            visual.GetComponent<Renderer>().sharedMaterial = material;
+
+            Collider visualCollider = visual.GetComponent<Collider>();
+            if (visualCollider != null)
+            {
+                Object.DestroyImmediate(visualCollider);
+            }
+
+            return visual;
+        }
+
         private static void ConfigureHeavyBody(Rigidbody body)
         {
             body.mass = 45f;
@@ -400,6 +575,7 @@ namespace DeliveryImpossible.Editor
                 headingFont,
                 bodyFont,
                 out GameObject orderPanel,
+                out TMP_Text orderTitle,
                 out TMP_Text objectiveText,
                 out TMP_Text objectiveHint,
                 out TMP_Text orderStamp,
@@ -422,6 +598,7 @@ namespace DeliveryImpossible.Editor
             SerializedObject serializedOrderHud = new SerializedObject(orderHud);
             serializedOrderHud.FindProperty("hudCanvas").objectReferenceValue = canvas;
             serializedOrderHud.FindProperty("orderPanel").objectReferenceValue = orderPanel;
+            serializedOrderHud.FindProperty("orderTitleText").objectReferenceValue = orderTitle;
             serializedOrderHud.FindProperty("objectiveText").objectReferenceValue = objectiveText;
             serializedOrderHud.FindProperty("objectiveHintText").objectReferenceValue = objectiveHint;
             serializedOrderHud.FindProperty("orderStampText").objectReferenceValue = orderStamp;
@@ -654,6 +831,7 @@ namespace DeliveryImpossible.Editor
             TMP_FontAsset headingFont,
             TMP_FontAsset bodyFont,
             out GameObject panel,
+            out TMP_Text orderTitle,
             out TMP_Text objective,
             out TMP_Text objectiveHint,
             out TMP_Text stamp,
@@ -690,7 +868,7 @@ namespace DeliveryImpossible.Editor
                 new Color32(165, 168, 172, 255), TextAlignmentOptions.Right,
                 Vector2.zero, Vector2.one, new Vector2(1f, 0.5f),
                 new Vector2(-14f, 0f), new Vector2(-4f, 0f), FontStyles.Normal);
-            CreateText(
+            orderTitle = CreateText(
                 "OrderTitle", panel.transform, headingFont,
                 "ТЯЖЁЛЫЙ ГРУЗ", 20f,
                 ink, TextAlignmentOptions.Left,
@@ -907,6 +1085,7 @@ namespace DeliveryImpossible.Editor
         private static void AddCargoToTestScene(
             GameObject cargoPrefab,
             GameObject heavyCargoPrefab,
+            GameObject fragileCargoPrefab,
             Material obstacleMaterial,
             Material deliveryZoneMaterial)
         {
@@ -948,6 +1127,20 @@ namespace DeliveryImpossible.Editor
                     new Vector3(0f, 0.6f, 6.5f),
                     Quaternion.identity);
 
+                GameObject fragileCargo = testScene.GetRootGameObjects()
+                    .FirstOrDefault(item => item.name == "Test Fragile Television");
+                if (fragileCargo == null)
+                {
+                    fragileCargo = (GameObject)PrefabUtility.InstantiatePrefab(
+                        fragileCargoPrefab,
+                        testScene);
+                    fragileCargo.name = "Test Fragile Television";
+                }
+
+                fragileCargo.transform.SetPositionAndRotation(
+                    new Vector3(2.4f, 0.58f, 4.5f),
+                    Quaternion.Euler(0f, -15f, 0f));
+
                 CreateOrUpdateObstacle(
                     testScene,
                     "Doorway Left",
@@ -967,10 +1160,16 @@ namespace DeliveryImpossible.Editor
                     new Vector3(1.5f, 0.5f, 0.5f),
                     obstacleMaterial);
 
+                DeliveryCheckpoint doorwayCheckpoint = CreateOrUpdateDeliveryCheckpoint(testScene);
                 DeliveryZone deliveryZone = CreateOrUpdateDeliveryZone(
                     testScene,
                     deliveryZoneMaterial);
-                CreateOrUpdateFirstOrder(testScene, heavyCargo, deliveryZone);
+                CreateOrUpdateFirstOrder(
+                    testScene,
+                    heavyCargo,
+                    fragileCargo,
+                    doorwayCheckpoint,
+                    deliveryZone);
                 EditorSceneManager.MarkSceneDirty(testScene);
                 EditorSceneManager.SaveScene(testScene);
             }
@@ -986,6 +1185,43 @@ namespace DeliveryImpossible.Editor
                     EditorSceneManager.CloseScene(testScene, true);
                 }
             }
+        }
+
+        private static DeliveryCheckpoint CreateOrUpdateDeliveryCheckpoint(Scene scene)
+        {
+            GameObject checkpointObject = scene.GetRootGameObjects()
+                .FirstOrDefault(item => item.name == "Doorway Checkpoint");
+            if (checkpointObject == null)
+            {
+                checkpointObject = new GameObject("Doorway Checkpoint");
+                SceneManager.MoveGameObjectToScene(checkpointObject, scene);
+            }
+
+            checkpointObject.transform.SetPositionAndRotation(
+                new Vector3(0f, 1.25f, 10.85f),
+                Quaternion.identity);
+
+            BoxCollider checkpointCollider = checkpointObject.GetComponent<BoxCollider>();
+            if (checkpointCollider == null)
+            {
+                checkpointCollider = checkpointObject.AddComponent<BoxCollider>();
+            }
+
+            checkpointCollider.isTrigger = true;
+            checkpointCollider.center = Vector3.zero;
+            checkpointCollider.size = new Vector3(2f, 2.5f, 1.2f);
+
+            DeliveryCheckpoint checkpoint = checkpointObject.GetComponent<DeliveryCheckpoint>();
+            if (checkpoint == null)
+            {
+                checkpoint = checkpointObject.AddComponent<DeliveryCheckpoint>();
+            }
+
+            SerializedObject serializedCheckpoint = new SerializedObject(checkpoint);
+            serializedCheckpoint.FindProperty("checkpointCollider").objectReferenceValue =
+                checkpointCollider;
+            serializedCheckpoint.ApplyModifiedPropertiesWithoutUndo();
+            return checkpoint;
         }
 
         private static DeliveryZone CreateOrUpdateDeliveryZone(Scene scene, Material material)
@@ -1046,6 +1282,8 @@ namespace DeliveryImpossible.Editor
         private static void CreateOrUpdateFirstOrder(
             Scene scene,
             GameObject heavyCargo,
+            GameObject fragileCargo,
+            DeliveryCheckpoint doorwayCheckpoint,
             DeliveryZone deliveryZone)
         {
             GameObject orderObject = scene.GetRootGameObjects()
@@ -1068,10 +1306,35 @@ namespace DeliveryImpossible.Editor
             }
 
             SerializedObject serializedOrder = new SerializedObject(order);
-            serializedOrder.FindProperty("targetCargo").objectReferenceValue =
-                heavyCargo.GetComponent<NetworkGrabbable>();
-            serializedOrder.FindProperty("deliveryZone").objectReferenceValue = deliveryZone;
+            SerializedProperty definitions = serializedOrder.FindProperty("orders");
+            definitions.arraySize = 2;
+            ConfigureOrderDefinition(
+                definitions.GetArrayElementAtIndex(0),
+                "ТЯЖЁЛЫЙ ГРУЗ",
+                heavyCargo.GetComponent<NetworkGrabbable>(),
+                doorwayCheckpoint,
+                deliveryZone);
+            ConfigureOrderDefinition(
+                definitions.GetArrayElementAtIndex(1),
+                "ТЕЛЕВИЗОР",
+                fragileCargo.GetComponent<NetworkGrabbable>(),
+                doorwayCheckpoint,
+                deliveryZone);
             serializedOrder.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void ConfigureOrderDefinition(
+            SerializedProperty definition,
+            string displayName,
+            NetworkGrabbable cargo,
+            DeliveryCheckpoint doorwayCheckpoint,
+            DeliveryZone deliveryZone)
+        {
+            definition.FindPropertyRelative("displayName").stringValue = displayName;
+            definition.FindPropertyRelative("targetCargo").objectReferenceValue = cargo;
+            definition.FindPropertyRelative("doorwayCheckpoint").objectReferenceValue =
+                doorwayCheckpoint;
+            definition.FindPropertyRelative("deliveryZone").objectReferenceValue = deliveryZone;
         }
 
         private static void CreateOrUpdateObstacle(

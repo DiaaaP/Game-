@@ -318,6 +318,78 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b856dd932cb143049b189a06c9bfdaf7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Interaction.NetworkGrabbable
+--- !u!114 &979361700 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 5990969366893617008, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+  m_PrefabInstance: {fileID: 1087704709}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b856dd932cb143049b189a06c9bfdaf7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Interaction.NetworkGrabbable
+--- !u!1001 &1087704709
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1393938395330228612, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: sceneId
+      value: 211267588
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 2.4
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.58
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 4.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.9914449
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.1305262
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1755306340822800688, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5300504021564497302, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
+      propertyPath: m_Name
+      value: Test Fragile Television
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 77689f0cd6961444ca8351279aa838c5, type: 3}
 --- !u!1 &1162904019
 GameObject:
   m_ObjectHideFlags: 0
@@ -555,6 +627,73 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1597ededc3bb78d48a7aa118bea85aa1, type: 3}
+--- !u!1 &1617058899
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1617058902}
+  - component: {fileID: 1617058901}
+  - component: {fileID: 1617058900}
+  m_Layer: 0
+  m_Name: Doorway Checkpoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1617058900
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1617058899}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cccff5136022d3844b5bec0f4fc8fffc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DeliveryImpossible.Orders.DeliveryCheckpoint
+  checkpointCollider: {fileID: 1617058901}
+--- !u!65 &1617058901
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1617058899}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 2, y: 2.5, z: 1.2}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!4 &1617058902
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1617058899}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.25, z: 10.85}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1741230953
 GameObject:
   m_ObjectHideFlags: 0
@@ -589,12 +728,20 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  targetCargo: {fileID: 271576972}
-  deliveryZone: {fileID: 1294188921}
+  orders:
+  - displayName: "\u0422\u042F\u0416\u0401\u041B\u042B\u0419 \u0413\u0420\u0423\u0417"
+    targetCargo: {fileID: 271576972}
+    doorwayCheckpoint: {fileID: 1617058900}
+    deliveryZone: {fileID: 1294188921}
+  - displayName: "\u0422\u0415\u041B\u0415\u0412\u0418\u0417\u041E\u0420"
+    targetCargo: {fileID: 979361700}
+    doorwayCheckpoint: {fileID: 1617058900}
+    deliveryZone: {fileID: 1294188921}
   placementDuration: 1.5
   maximumLinearSpeed: 0.35
   maximumAngularSpeed: 0.75
-  restartDelay: 6
+  nextOrderDelay: 6
+  shiftSummaryDuration: 10
 --- !u!114 &1741230955
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1218,3 +1365,5 @@ SceneRoots:
   - {fileID: 1162904023}
   - {fileID: 1294188923}
   - {fileID: 1741230956}
+  - {fileID: 1617058902}
+  - {fileID: 1087704709}
