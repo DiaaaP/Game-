@@ -1,3 +1,4 @@
+using DeliveryImpossible.Orders;
 using Mirror;
 using TMPro;
 using UnityEngine;
@@ -34,7 +35,7 @@ namespace DeliveryImpossible.Interaction
         private NetworkGrabbable hovered;
         private Vector3 hoveredGrabPoint;
         private NetworkGrabbable serverHeld;
-        private Quaternion heldRotationOffset = Quaternion.identity;
+        private Quaternion carryRotation = Quaternion.identity;
         private uint pendingGrabNetId;
         private double nextPoseSendTime;
 
@@ -75,6 +76,14 @@ namespace DeliveryImpossible.Interaction
                     return;
                 }
 
+                if (keyboard.qKey.wasPressedThisFrame && !held.RequiresTeam)
+                {
+                    NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
+                    carryRotation = order != null && order.TryGetNearbyDockRotation(held, transform.position, out Quaternion dockRotation)
+                        ? dockRotation
+                        : Quaternion.Euler(0f, Mathf.Round(carryRotation.eulerAngles.y / 90f) * 90f + 90f, 0f);
+                }
+
                 if (Time.unscaledTimeAsDouble >= nextPoseSendTime)
                 {
                     nextPoseSendTime = Time.unscaledTimeAsDouble + 1d / poseSendRate;
@@ -91,7 +100,7 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
-            heldRotationOffset = Quaternion.Inverse(playerCamera.transform.rotation) * hovered.transform.rotation;
+            carryRotation = Quaternion.Euler(0f, hovered.transform.eulerAngles.y, 0f);
             pendingGrabNetId = hovered.netId;
             GetDesiredPose(out Vector3 desiredPosition, out Quaternion desiredRotation);
             CmdTryGrab(hovered.netId, hoveredGrabPoint, desiredPosition, desiredRotation);
@@ -104,14 +113,14 @@ namespace DeliveryImpossible.Interaction
 
             if (Physics.SphereCast(
                     ray,
-                    sphereCastRadius,
+                    Mathf.Max(0.18f, sphereCastRadius),
                     out RaycastHit hit,
                     interactionDistance,
                     interactionMask,
                     QueryTriggerInteraction.Ignore))
             {
                 candidate = hit.collider.GetComponentInParent<NetworkGrabbable>();
-                if (candidate != null && candidate.IsFullyHeld)
+                if (candidate != null && !candidate.CanPickUp)
                 {
                     candidate = null;
                 }
@@ -119,6 +128,23 @@ namespace DeliveryImpossible.Interaction
                 if (candidate != null)
                 {
                     hoveredGrabPoint = hit.point;
+                }
+            }
+
+            if (candidate == null)
+            {
+                NetworkGrabbable nearby = NetworkDeliveryOrder.Active?.ActiveCargo;
+                if (nearby != null && nearby.CanPickUp && nearby.DistanceFrom(ray.origin) <= 3.3f)
+                {
+                    Vector3 direction = nearby.WorldCenter - ray.origin;
+                    if (Vector3.Dot(ray.direction, direction.normalized) >= 0.65f &&
+                        Physics.Raycast(ray.origin, direction.normalized, out RaycastHit direct, direction.magnitude + 0.16f,
+                            interactionMask, QueryTriggerInteraction.Ignore) &&
+                        direct.collider.GetComponentInParent<NetworkGrabbable>() == nearby)
+                    {
+                        candidate = nearby;
+                        hoveredGrabPoint = direct.point;
+                    }
                 }
             }
 
@@ -152,38 +178,38 @@ namespace DeliveryImpossible.Interaction
             {
                 if (held.NeedsMoreHolders)
                 {
-                    action = "ОТПУСТИТЬ ГРУЗ";
-                    hint = GetCargoConditionHint(held, "ГРУЗ БУДЕТ БРОШЕН");
+                    action = "Отпустить";
+                    hint = "Чтобы опустить груз, наклоните взгляд.";
                     warning = "НУЖЕН ВТОРОЙ ИГРОК  |  ТЯЖЁЛЫЙ ГРУЗ";
                 }
                 else if (held.RequiresTeam)
                 {
-                    action = "ОТПУСТИТЬ ГРУЗ";
+                    action = "Отпустить";
                     hint = GetCargoConditionHint(held, "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ");
                 }
                 else
                 {
-                    action = "ОТПУСТИТЬ ГРУЗ";
-                    hint = GetCargoConditionHint(held, "ГРУЗ БУДЕТ БРОШЕН");
+                    action = "Отпустить";
+                    hint = "Чтобы опустить груз, наклоните взгляд.";
                 }
             }
             else if (hovered != null)
             {
                 if (hovered.RequiresTeam && hovered.HolderCount > 0)
                 {
-                    action = "ПОМОЧЬ НЕСТИ";
-                    hint = "СХВАТИТЕ СВОЮ СТОРОНУ";
+                    action = "Помочь нести";
+                    hint = "";
                 }
                 else if (hovered.RequiresTeam)
                 {
-                    action = "СХВАТИТЬ ГРУЗ";
-                    hint = "УДЕРЖИВАЙТЕ ДЛЯ ПОДДЕРЖКИ";
+                    action = "Взять груз";
+                    hint = "";
                     warning = "НУЖЕН ВТОРОЙ ИГРОК  |  ТЯЖЁЛЫЙ ГРУЗ";
                 }
                 else
                 {
-                    action = "ВЗЯТЬ ГРУЗ";
-                    hint = GetCargoConditionHint(hovered, "ПЕРЕНЕСТИ ПРЕДМЕТ");
+                    action = "Взять груз";
+                    hint = GetCargoConditionHint(hovered, "");
                 }
             }
 
@@ -224,9 +250,10 @@ namespace DeliveryImpossible.Interaction
 
         private void GetDesiredPose(out Vector3 position, out Quaternion rotation)
         {
-            Transform cameraTransform = playerCamera.transform;
-            position = cameraTransform.position + cameraTransform.forward * holdDistance;
-            rotation = cameraTransform.rotation * heldRotationOffset;
+            float lowering = Mathf.Clamp01(-playerCamera.transform.forward.y * 1.75f);
+            float height = Mathf.Lerp(1.10f, 0.66f, lowering);
+            position = transform.position + transform.forward * Mathf.Clamp(holdDistance, 1.45f, 1.85f) + Vector3.up * height;
+            rotation = carryRotation;
         }
 
         [Command]
@@ -279,7 +306,10 @@ namespace DeliveryImpossible.Interaction
         [Command]
         private void CmdRelease()
         {
-            ServerReleaseTarget(serverHeld);
+            NetworkGrabbable cargo = serverHeld;
+            if (cargo == null) return;
+            ServerReleaseTarget(cargo);
+            if (!cargo.IsHeld) cargo.ServerDampenRelease();
         }
 
         [Server]
@@ -306,7 +336,7 @@ namespace DeliveryImpossible.Interaction
 
             if (current.netId != pendingGrabNetId)
             {
-                heldRotationOffset = Quaternion.Inverse(playerCamera.transform.rotation) * current.transform.rotation;
+                carryRotation = Quaternion.Euler(0f, current.transform.eulerAngles.y, 0f);
             }
 
             pendingGrabNetId = 0;

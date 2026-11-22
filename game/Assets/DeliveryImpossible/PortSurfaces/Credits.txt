@@ -1,0 +1,21 @@
+All imported assets below are distributed under CC0 1.0 Universal.
+
+Poly Haven
+The surface textures include their original color and OpenGL normal maps.
+Kloppenheim 01 (Pure Sky) HDRI by Greg Zaal and Jarod Guest
+https://polyhaven.com/a/kloppenheim_01_puresky
+Wood Planks Grey by Rob Tuytel
+https://polyhaven.com/a/wood_planks_grey
+Hangar Concrete Floor by Dimitrios Savva
+https://polyhaven.com/a/hangar_concrete_floor
+Brick Wall 006 by Jan Burghardt
+https://polyhaven.com/a/brick_wall_006
+Corrugated Iron 02 by Sergej Majboroda and Jenelle van Heerden
+https://polyhaven.com/a/corrugated_iron_02
+
+Kenney
+Factory Kit
+https://opengameart.org/content/factory-kit
+Watercraft Kit
+https://opengameart.org/content/watercraft-kit
+The original notices are in Models/Port.

@@ -1,3 +1,5 @@
+using DeliveryImpossible.Networking;
+using DeliveryImpossible.Orders;
 using Mirror;
 using UnityEngine;
 
@@ -32,6 +34,7 @@ namespace DeliveryImpossible.Interaction
         [SerializeField, Range(0.01f, 1f)] private float insufficientHolderStrength = 0.1f;
 
         [Header("Local Feedback")]
+        [SerializeField] private bool campaignBonusCargo;
         [SerializeField] private Color highlightColor = new Color(1f, 0.72f, 0.12f, 1f);
         [SerializeField] private Renderer[] highlightedRenderers;
 
@@ -56,13 +59,17 @@ namespace DeliveryImpossible.Interaction
         private MaterialPropertyBlock highlightBlock;
         private bool originalIsKinematic;
         private bool highlighted;
+        private Quaternion teamCarryRotation;
+        private Collider[] bonusColliders;
+        private bool? bonusVisible;
 
         public bool IsHeld => holderCount > 0;
-        public bool IsFullyHeld => holderCount >= maxHolders;
-        public bool RequiresTeam => requiredHolders > 1;
-        public bool NeedsMoreHolders => holderCount > 0 && holderCount < requiredHolders;
+        public bool IsFullyHeld => holderCount >= (NetworkSessionState.Active?.IsSolo == true ? 1 : maxHolders);
+        public bool RequiresTeam => RequiredHolders > 1;
+        public bool NeedsMoreHolders => IsHeld && holderCount < RequiredHolders;
+        public bool CanPickUp => !IsFullyHeld && (NetworkDeliveryOrder.Active?.AllowsPickup(this) ?? true);
         public int HolderCount => holderCount;
-        public int RequiredHolders => requiredHolders;
+        public int RequiredHolders => NetworkSessionState.Active?.IsSolo == true ? 1 : requiredHolders;
         public uint FirstHolderNetId => firstHolderNetId;
         public uint SecondHolderNetId => secondHolderNetId;
         public Vector3 WorldCenter => body != null ? body.worldCenterOfMass : transform.position;
@@ -81,12 +88,24 @@ namespace DeliveryImpossible.Interaction
             {
                 highlightedRenderers = GetComponentsInChildren<Renderer>(true);
             }
+
+            if (campaignBonusCargo)
+            {
+                bonusColliders = GetComponentsInChildren<Collider>();
+                UpdateBonusVisibility();
+            }
         }
 
         public override void OnStartServer()
         {
             base.OnStartServer();
             body.isKinematic = originalIsKinematic;
+            if (campaignBonusCargo)
+            {
+                bonusVisible = null;
+                UpdateBonusVisibility();
+            }
+            teamCarryRotation = body.rotation;
             networkPosition = body.position;
             networkRotation = body.rotation;
         }
@@ -103,6 +122,21 @@ namespace DeliveryImpossible.Interaction
                 body.position = networkPosition;
                 body.rotation = networkRotation;
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (campaignBonusCargo) UpdateBonusVisibility();
+        }
+
+        private void UpdateBonusVisibility()
+        {
+            bool visible = NetworkDeliveryOrder.Active?.IncludesBonusCargo == true;
+            if (bonusVisible == visible) return;
+            bonusVisible = visible;
+            foreach (Renderer item in highlightedRenderers) item.enabled = visible;
+            foreach (Collider item in bonusColliders) item.enabled = visible;
+            body.isKinematic = !isServer || !visible || originalIsKinematic;
         }
 
         private void FixedUpdate()
@@ -159,7 +193,7 @@ namespace DeliveryImpossible.Interaction
 
             Quaternion targetRotation = Quaternion.identity;
             int activeHolders = 0;
-            float controlStrength = holderCount >= requiredHolders
+            float controlStrength = holderCount >= RequiredHolders
                 ? 1f
                 : insufficientHolderStrength;
             foreach (HolderState state in serverHolders)
@@ -187,6 +221,11 @@ namespace DeliveryImpossible.Interaction
             if (activeHolders == 0)
             {
                 return;
+            }
+
+            if (requiredHolders > 1)
+            {
+                targetRotation = teamCarryRotation;
             }
 
             Quaternion rotationError = targetRotation * Quaternion.Inverse(body.rotation);
@@ -228,7 +267,7 @@ namespace DeliveryImpossible.Interaction
         {
             if (holder == null ||
                 body == null ||
-                body.isKinematic ||
+                body.isKinematic || !CanPickUp ||
                 FindHolderIndex(holder) >= 0)
             {
                 return false;
@@ -243,7 +282,7 @@ namespace DeliveryImpossible.Interaction
             serverHolders[freeIndex] = new HolderState
             {
                 Holder = holder,
-                LocalAnchor = transform.InverseTransformPoint(worldGrabPoint),
+                LocalAnchor = RequiresTeam ? transform.InverseTransformPoint(worldGrabPoint) : body.centerOfMass,
                 TargetPosition = desiredPosition,
                 TargetRotation = desiredRotation
             };
@@ -283,6 +322,15 @@ namespace DeliveryImpossible.Interaction
         }
 
         [Server]
+        public void ServerDampenRelease()
+        {
+            if (body.isKinematic || IsHeld) return;
+            Vector3 velocity = body.linearVelocity;
+            body.linearVelocity = new Vector3(velocity.x * 0.24f, Mathf.Min(velocity.y, 0.25f), velocity.z * 0.24f);
+            body.angularVelocity *= 0.24f;
+        }
+
+        [Server]
         public void ServerResetPose(Vector3 position, Quaternion rotation)
         {
             for (int index = serverHolders.Length - 1; index >= 0; index--)
@@ -301,11 +349,15 @@ namespace DeliveryImpossible.Interaction
             RefreshHolderSyncState();
             body.position = position;
             body.rotation = rotation;
-            body.linearVelocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
+            teamCarryRotation = rotation;
+            if (!body.isKinematic)
+            {
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.WakeUp();
+            }
             networkPosition = position;
             networkRotation = rotation;
-            body.WakeUp();
         }
 
         [Server]

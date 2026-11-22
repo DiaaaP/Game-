@@ -59,16 +59,24 @@ namespace DeliveryImpossible.Interaction
             }
 
             float impactSpeed = collision.relativeVelocity.magnitude;
-            if (impactSpeed <= safeImpactSpeed)
+            bool beingCarried = GetComponent<NetworkGrabbable>().IsHeld;
+            float safeSpeed = safeImpactSpeed + (beingCarried ? 1.3f : 0f);
+            if (impactSpeed <= safeSpeed)
             {
                 return;
             }
 
             float damage = Mathf.InverseLerp(
-                safeImpactSpeed,
-                Mathf.Max(safeImpactSpeed + 0.1f, breakingImpactSpeed),
+                safeSpeed,
+                Mathf.Max(safeSpeed + 0.1f, breakingImpactSpeed),
                 impactSpeed);
-            integrity = Mathf.Clamp01(integrity - damage);
+            ServerApplyDamage(beingCarried ? damage * 0.55f : damage);
+        }
+
+        [Server]
+        public void ServerApplyDamage(float damage)
+        {
+            integrity = Mathf.Clamp01(integrity - Mathf.Max(0f, damage));
             ApplyDamageAppearance(integrity);
         }
 

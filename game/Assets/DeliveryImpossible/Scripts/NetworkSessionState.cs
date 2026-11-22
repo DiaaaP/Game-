@@ -13,10 +13,11 @@ namespace DeliveryImpossible.Networking
         [SerializeField] private bool allowSoloTesting = true;
 
         [SyncVar] private bool sessionStarted;
-        private bool startedSolo;
+        [SyncVar] private bool startedSolo;
 
         public static NetworkSessionState Active { get; private set; }
         public bool SessionStarted => sessionStarted;
+        public bool IsSolo => sessionStarted && startedSolo;
         public int RequiredPlayers => requiredPlayers;
         public bool AllowSoloTesting => allowSoloTesting;
 
@@ -42,8 +43,19 @@ namespace DeliveryImpossible.Networking
         [Server]
         public void ServerTryStart(NetworkConnectionToClient requester)
         {
-            if (sessionStarted || requester == null || requester.connectionId != 0)
+            if (requester == null || requester.connectionId != 0)
             {
+                return;
+            }
+
+            NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
+            if (sessionStarted)
+            {
+                if (order != null && order.State == DeliveryOrderState.ShiftCompleted)
+                {
+                    order.ServerRestartShift();
+                }
+
                 return;
             }
 
@@ -58,7 +70,7 @@ namespace DeliveryImpossible.Networking
 
             startedSolo = soloTest;
             sessionStarted = true;
-            FindFirstObjectByType<NetworkDeliveryOrder>()?.ServerRestartShift();
+            order?.ServerRestartShift();
         }
 
         [Server]

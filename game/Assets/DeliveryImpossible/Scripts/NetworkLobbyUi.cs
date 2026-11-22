@@ -1,8 +1,10 @@
 using System.Linq;
 using DeliveryImpossible.Networking;
+using DeliveryImpossible.Orders;
 using Mirror;
 using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using LobbyPlayer = DeliveryImpossible.Networking.NetworkLobbyPlayer;
 
@@ -19,8 +21,21 @@ namespace DeliveryImpossible.UI
         [SerializeField] private GameObject playMenuPanel;
         [SerializeField] private GameObject joinMenuPanel;
         [SerializeField] private GameObject lobbyPanel;
+        [SerializeField] private GameObject pausePanel;
+        [SerializeField] private Button resumeButton;
+        [SerializeField] private Button leaveShiftButton;
+        [SerializeField] private Button retryShiftButton;
+
+        [Header("Campaign results")]
+        [SerializeField] private GameObject campaignResultsPanel;
+        [SerializeField] private TMP_Text campaignResultTitle;
+        [SerializeField] private TMP_Text campaignResultDetails;
+        [SerializeField] private TMP_Text campaignResultHint;
+        [SerializeField] private Button restartCampaignButton;
+        [SerializeField] private Button leaveCampaignButton;
 
         [Header("Main menu")]
+        [SerializeField] private Button soloButton;
         [SerializeField] private Button playButton;
         [SerializeField] private Button playBackButton;
         [SerializeField] private Button openJoinButton;
@@ -30,6 +45,13 @@ namespace DeliveryImpossible.UI
         [SerializeField] private Button joinButton;
         [SerializeField] private Button quitButton;
         [SerializeField] private TMP_Text connectionStatusText;
+        [SerializeField] private GameObject settingsPanel;
+        [SerializeField] private Button settingsButton;
+        [SerializeField] private Button settingsBackButton;
+        [SerializeField] private Slider volumeSlider;
+        [SerializeField] private Slider sensitivitySlider;
+        [SerializeField] private TMP_Text volumeValue;
+        [SerializeField] private TMP_Text sensitivityValue;
 
         [Header("Lobby")]
         [SerializeField] private TMP_Text lobbyTitleText;
@@ -44,30 +66,59 @@ namespace DeliveryImpossible.UI
         private NetworkManager manager;
         private bool wasBlocking;
         private bool wasConnected;
+        private bool pauseOpen;
+        private bool startSoloOnConnect;
         private MenuPage menuPage = MenuPage.Main;
+        private const string VolumePref = "NorthQuay.Volume";
+        private const string SensitivityPref = "NorthQuay.MouseSensitivity";
 
         private enum MenuPage
         {
             Main,
             Play,
-            Join
+            Join,
+            Settings
         }
 
         public static bool BlocksGameplay { get; private set; } = true;
+        public static bool ManagesPause { get; private set; }
+        public static bool ShowsCampaignResults { get; private set; }
+        public static float MouseSensitivityMultiplier { get; private set; } = 1f;
 
         private void Awake()
         {
             manager = GetComponent<NetworkManager>();
+            soloButton?.onClick.AddListener(StartSolo);
             playButton?.onClick.AddListener(ShowPlayMenu);
             playBackButton?.onClick.AddListener(ShowMainMenu);
             openJoinButton?.onClick.AddListener(ShowJoinMenu);
-            joinBackButton?.onClick.AddListener(ShowPlayMenu);
+            joinBackButton?.onClick.AddListener(ReturnFromJoin);
             hostButton?.onClick.AddListener(StartHost);
             joinButton?.onClick.AddListener(StartClient);
             quitButton?.onClick.AddListener(QuitGame);
+            settingsButton?.onClick.AddListener(() => menuPage = MenuPage.Settings);
+            settingsBackButton?.onClick.AddListener(ShowMainMenu);
+            SetVolume(Mathf.Clamp01(PlayerPrefs.GetFloat(VolumePref, 1f)));
+            SetSensitivity(Mathf.Clamp(PlayerPrefs.GetFloat(SensitivityPref, 1f), 0.5f, 2f));
+            if (volumeSlider != null)
+            {
+                volumeSlider.SetValueWithoutNotify(AudioListener.volume);
+                volumeSlider.onValueChanged.AddListener(SetVolume);
+            }
+            if (sensitivitySlider != null)
+            {
+                sensitivitySlider.SetValueWithoutNotify(MouseSensitivityMultiplier);
+                sensitivitySlider.onValueChanged.AddListener(SetSensitivity);
+            }
             readyButton?.onClick.AddListener(ToggleReady);
             startButton?.onClick.AddListener(StartSession);
             disconnectButton?.onClick.AddListener(Disconnect);
+            resumeButton?.onClick.AddListener(ResumeShift);
+            leaveShiftButton?.onClick.AddListener(Disconnect);
+            retryShiftButton?.onClick.AddListener(RetryShift);
+            restartCampaignButton?.onClick.AddListener(StartSession);
+            leaveCampaignButton?.onClick.AddListener(Disconnect);
+            ManagesPause = pausePanel != null;
 
             if (addressInput != null && string.IsNullOrWhiteSpace(addressInput.text))
             {
@@ -82,13 +133,41 @@ namespace DeliveryImpossible.UI
             bool sessionStarted = connected &&
                                   NetworkSessionState.Active != null &&
                                   NetworkSessionState.Active.SessionStarted;
+            if (startSoloOnConnect && connected && NetworkServer.active && LobbyPlayer.LocalPlayer != null)
+            {
+                startSoloOnConnect = false;
+                LobbyPlayer.LocalPlayer.RequestStartSession();
+                sessionStarted = NetworkSessionState.Active?.SessionStarted == true;
+            }
             bool showMainMenu = !connected;
             bool showLobby = connected && !sessionStarted;
             bool showMenu = showMainMenu || showLobby;
+            NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
+            ShowsCampaignResults = campaignResultsPanel != null && sessionStarted &&
+                                   order != null && order.State == DeliveryOrderState.ShiftCompleted;
+            if (!sessionStarted || ShowsCampaignResults)
+            {
+                pauseOpen = false;
+            }
+            else if (ManagesPause && Keyboard.current?.escapeKey.wasPressedThisFrame == true)
+            {
+                pauseOpen = !pauseOpen;
+            }
+
+            if (sessionStarted && NetworkServer.active && !pauseOpen && !ShowsCampaignResults &&
+                Keyboard.current?.rKey.wasPressedThisFrame == true)
+            {
+                LobbyPlayer.LocalPlayer?.RequestCargoRecovery();
+            }
 
             if (!connected && wasConnected)
             {
                 menuPage = MenuPage.Main;
+            }
+            if (showMainMenu && !connecting && menuPage != MenuPage.Main &&
+                Keyboard.current?.escapeKey.wasPressedThisFrame == true)
+            {
+                ShowMainMenu();
             }
 
             wasConnected = connected;
@@ -112,25 +191,47 @@ namespace DeliveryImpossible.UI
             {
                 joinMenuPanel.SetActive(showMainMenu && menuPage == MenuPage.Join);
             }
+            settingsPanel?.SetActive(showMainMenu && menuPage == MenuPage.Settings);
 
             if (lobbyPanel != null)
             {
                 lobbyPanel.SetActive(showLobby);
             }
 
+            pausePanel?.SetActive(pauseOpen);
+            if (retryShiftButton != null) retryShiftButton.interactable = NetworkServer.active && !ShowsCampaignResults;
+            campaignResultsPanel?.SetActive(ShowsCampaignResults);
+            if (ShowsCampaignResults)
+            {
+                UpdateCampaignResults(order);
+            }
+
             if (lobbyCanvas != null)
             {
-                lobbyCanvas.enabled = showMenu;
+                lobbyCanvas.enabled = showMenu || pauseOpen || ShowsCampaignResults;
             }
 
             UpdateMainMenu(connecting);
             UpdateLobby(showLobby);
-            SetInputBlocked(showMenu);
+            SetInputBlocked(showMenu || pauseOpen || ShowsCampaignResults);
+        }
+
+        private void UpdateCampaignResults(NetworkDeliveryOrder order)
+        {
+            campaignResultTitle.text = order.CampaignWon ? "КАМПАНИЯ ПРОЙДЕНА" : "КАМПАНИЯ НЕ ПРОЙДЕНА";
+            campaignResultTitle.color = order.CampaignWon
+                ? new Color32(141, 225, 173, 255)
+                : new Color32(255, 164, 119, 255);
+            campaignResultDetails.text = $"Доставлено  {order.CompletedOrders}/{order.TotalOrders}\nОчки  {order.TotalScore}";
+            bool host = NetworkServer.active;
+            restartCampaignButton.gameObject.SetActive(host);
+            campaignResultHint.text = host ? "" : "Новую кампанию запускает хост.";
         }
 
         private void UpdateMainMenu(bool connecting)
         {
             bool idle = !NetworkClient.active && !NetworkServer.active;
+            if (soloButton != null) soloButton.interactable = idle;
             if (hostButton != null) hostButton.interactable = idle;
             if (joinButton != null) joinButton.interactable = idle;
             if (addressInput != null) addressInput.interactable = idle;
@@ -203,14 +304,14 @@ namespace DeliveryImpossible.UI
                 startButtonText.text = !isHost
                     ? "ЖДЁМ ХОСТА"
                     : soloTestAvailable
-                        ? "НАЧАТЬ ОДНОМУ  /  ТЕСТ"
+                        ? "НАЧАТЬ ОДНОМУ"
                         : "НАЧАТЬ СМЕНУ";
             }
 
             if (lobbyStatusText != null)
             {
                 lobbyStatusText.text = soloTestAvailable
-                    ? "МОЖНО ЗАПУСТИТЬ ТЕСТ БЕЗ НАПАРНИКА"
+                    ? "ПРОЙДИТЕ СМЕНУ БЕЗ НАПАРНИКА"
                     : players.Length < requiredPlayers
                     ? "ОЖИДАЕМ ВТОРОГО КУРЬЕРА"
                     : allReady
@@ -227,6 +328,19 @@ namespace DeliveryImpossible.UI
             }
         }
 
+        private void StartSolo()
+        {
+            if (NetworkClient.active || NetworkServer.active) return;
+            startSoloOnConnect = true;
+            StartHost();
+        }
+
+        private void ReturnFromJoin()
+        {
+            if (playMenuPanel != null) ShowPlayMenu();
+            else ShowMainMenu();
+        }
+
         private void ShowMainMenu()
         {
             menuPage = MenuPage.Main;
@@ -240,6 +354,20 @@ namespace DeliveryImpossible.UI
         private void ShowJoinMenu()
         {
             menuPage = MenuPage.Join;
+        }
+
+        private void SetVolume(float value)
+        {
+            AudioListener.volume = value;
+            if (volumeValue != null) volumeValue.text = $"{Mathf.RoundToInt(value * 100f)}%";
+            PlayerPrefs.SetFloat(VolumePref, value);
+        }
+
+        private void SetSensitivity(float value)
+        {
+            MouseSensitivityMultiplier = value;
+            if (sensitivityValue != null) sensitivityValue.text = $"{Mathf.RoundToInt(value * 100f)}%";
+            PlayerPrefs.SetFloat(SensitivityPref, value);
         }
 
         private void StartClient()
@@ -269,8 +397,20 @@ namespace DeliveryImpossible.UI
             LobbyPlayer.LocalPlayer?.RequestStartSession();
         }
 
+        private void ResumeShift()
+        {
+            pauseOpen = false;
+        }
+
+        private void RetryShift()
+        {
+            if (NetworkServer.active) LobbyPlayer.LocalPlayer?.RequestCargoRecovery();
+            pauseOpen = false;
+        }
+
         private void Disconnect()
         {
+            startSoloOnConnect = false;
             if (NetworkServer.active && NetworkClient.isConnected)
             {
                 manager.StopHost();
@@ -314,6 +454,8 @@ namespace DeliveryImpossible.UI
         private void OnDestroy()
         {
             BlocksGameplay = false;
+            ManagesPause = false;
+            ShowsCampaignResults = false;
         }
     }
 }

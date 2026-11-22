@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using DeliveryImpossible.Orders;
 using Mirror;
 using UnityEngine;
 
@@ -29,6 +31,20 @@ namespace DeliveryImpossible.Networking
             if (!ServerPlayersInternal.Contains(this))
             {
                 ServerPlayersInternal.Add(this);
+            }
+
+            if (NetworkSessionState.Active?.SessionStarted == true)
+            {
+                StartCoroutine(PlaceLateCourier());
+            }
+        }
+
+        private IEnumerator PlaceLateCourier()
+        {
+            yield return null;
+            if (isServer)
+            {
+                NetworkDeliveryOrder.Active?.ServerPlaceCourier(this);
             }
         }
 
@@ -78,6 +94,23 @@ namespace DeliveryImpossible.Networking
             if (isLocalPlayer)
             {
                 CmdRequestStartSession();
+            }
+        }
+
+        public void RequestCargoRecovery()
+        {
+            if (isLocalPlayer)
+            {
+                CmdRequestCargoRecovery();
+            }
+        }
+
+        [Command]
+        private void CmdRequestCargoRecovery()
+        {
+            if (connectionToClient.connectionId == 0)
+            {
+                NetworkDeliveryOrder.Active?.ServerRecoverCargo();
             }
         }
 

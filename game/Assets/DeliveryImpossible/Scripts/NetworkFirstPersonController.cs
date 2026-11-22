@@ -72,6 +72,40 @@ namespace DeliveryImpossible.Player
             base.OnStopLocalPlayer();
         }
 
+        [Server]
+        public void ServerEnterLevel(Vector3 position, Quaternion rotation)
+        {
+            characterController.enabled = false;
+            GetComponent<NetworkTransformBase>().ServerTeleport(position, rotation);
+            characterController.enabled = true;
+            networkCrouching = false;
+            ResetLevelMovement();
+            if (!isLocalPlayer)
+            {
+                TargetResetLevelMovement(connectionToClient, position, rotation);
+            }
+        }
+
+        [TargetRpc]
+        private void TargetResetLevelMovement(NetworkConnectionToClient target, Vector3 position, Quaternion rotation)
+        {
+            characterController.enabled = false;
+            transform.SetPositionAndRotation(position, rotation);
+            characterController.enabled = true;
+            ResetLevelMovement();
+        }
+
+        private void ResetLevelMovement()
+        {
+            verticalVelocity = 0f;
+            cameraPitch = 0f;
+            targetCrouching = false;
+            if (cameraRoot != null)
+            {
+                cameraRoot.localRotation = Quaternion.identity;
+            }
+        }
+
         private void OnDisable()
         {
             if (isLocalPlayer)
@@ -142,7 +176,7 @@ namespace DeliveryImpossible.Player
                 return;
             }
 
-            Vector2 mouseDelta = Mouse.current.delta.ReadValue() * mouseSensitivity;
+            Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (mouseSensitivity * NetworkLobbyUi.MouseSensitivityMultiplier);
             cameraPitch = Mathf.Clamp(cameraPitch - mouseDelta.y, -maxLookAngle, maxLookAngle);
             cameraRoot.localRotation = Quaternion.Euler(cameraPitch, 0f, 0f);
             transform.Rotate(Vector3.up, mouseDelta.x, Space.Self);
@@ -251,9 +285,13 @@ namespace DeliveryImpossible.Player
             Keyboard keyboard = Keyboard.current;
             Mouse mouse = Mouse.current;
 
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+            if (!NetworkLobbyUi.ManagesPause && keyboard?.escapeKey.wasPressedThisFrame == true)
             {
                 ReleaseCursor();
+            }
+            else if (Cursor.lockState == CursorLockMode.Locked)
+            {
+                cursorCaptured = true;
             }
             else if (!cursorCaptured && mouse != null && mouse.leftButton.wasPressedThisFrame)
             {

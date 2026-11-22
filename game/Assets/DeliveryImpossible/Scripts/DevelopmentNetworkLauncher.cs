@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Linq;
+using DeliveryImpossible.Orders;
 using Mirror;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -60,16 +61,14 @@ namespace DeliveryImpossible.Networking
             WaitForSeconds wait = new WaitForSeconds(0.5f);
             while (true)
             {
-                Interaction.NetworkGrabbable cargo =
-                    FindFirstObjectByType<Interaction.NetworkGrabbable>();
-
-                if (cargo != null && NetworkClient.isConnected)
+                NetworkLobbyPlayer courier = NetworkLobbyPlayer.LocalPlayer;
+                NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
+                if (courier != null && order != null && NetworkClient.isConnected)
                 {
-                    Rigidbody body = cargo.GetComponent<Rigidbody>();
-                    Debug.Log(
-                        $"[NetworkDiagnostics] role=client netId={cargo.netId} " +
-                        $"position={cargo.transform.position:F3} held={cargo.IsHeld} " +
-                        $"kinematic={body.isKinematic}");
+                    Debug.Log($"[NetworkDiagnostics] courier={courier.PlayerNumber} " +
+                        $"position={courier.transform.position:F3} level={order.CurrentLevelNumber}/{order.TotalLevels} " +
+                        $"order={order.CurrentOrderNumber}/{order.TotalOrders} " +
+                        $"state={order.State} gates={order.CheckpointsPassed}/{order.CheckpointCount}");
                 }
 
                 yield return wait;
