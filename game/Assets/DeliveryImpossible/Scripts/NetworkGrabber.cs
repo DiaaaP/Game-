@@ -198,11 +198,6 @@ namespace DeliveryImpossible.Interaction
                     action = "Отпустить";
                     hint = GetCargoConditionHint(held, "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ");
                 }
-                else if (held.HolderCount == 2)
-                {
-                    action = "Отпустить";
-                    hint = "Вы держите модуль вдвоём.";
-                }
                 else
                 {
                     action = "Отпустить";
@@ -211,7 +206,7 @@ namespace DeliveryImpossible.Interaction
             }
             else if (hovered != null)
             {
-                if (hovered.HolderCount > 0)
+                if (hovered.RequiresTeam && hovered.HolderCount > 0)
                 {
                     action = "Помочь нести";
                     hint = "";

@@ -6,8 +6,7 @@ namespace DeliveryImpossible.Editor
 {
     public static partial class WarehouseSetup
     {
-        private static GameObject MakeCampaignCargo(string name, Vector3 size, float mass, bool fragile = false,
-            int maxHolders = 1)
+        private static GameObject MakeCampaignCargo(string name, Vector3 size, float mass, bool fragile = false)
         {
             GameObject cargo = new GameObject(name);
             try
@@ -21,7 +20,7 @@ namespace DeliveryImpossible.Editor
                 cargo.AddComponent<BoxCollider>().size = size;
                 NetworkGrabbable grabbable = cargo.AddComponent<NetworkGrabbable>();
                 SerializedObject hold = new SerializedObject(grabbable);
-                hold.FindProperty("maxHolders").intValue = maxHolders;
+                hold.FindProperty("maxHolders").intValue = 1;
                 hold.ApplyModifiedPropertiesWithoutUndo();
 
                 Transform art = Child(cargo.transform, "Cargo Model");

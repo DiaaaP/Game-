@@ -40,8 +40,7 @@ namespace DeliveryImpossible.Editor
 
             Transform hub = new GameObject("Campaign Locations").transform;
             GameObject thermal = MakeCampaignCargo("ThermalContainer", new Vector3(0.9f, 0.74f, 0.88f), 9f);
-            GameObject module = MakeCampaignCargo("PowerModule", new Vector3(1.12f, 0.86f, 1.06f), 16f,
-                fragile: true, maxHolders: 2);
+            GameObject module = MakeCampaignCargo("PowerModule", new Vector3(1.12f, 0.86f, 1.06f), 16f, fragile: true);
             CampaignLevel[] levels =
             {
                 BuildHarbor(hub), BuildFoundry(hub), BuildArchive(hub), BuildColdStore(hub, thermal), BuildPowerStation(hub, module)

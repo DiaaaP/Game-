@@ -82,7 +82,6 @@ namespace DeliveryImpossible.Orders
             public int Drops;
             public uint LastCourier;
             public float Heat;
-            public float Charge;
             public float Placement;
             public float FinalTime;
             public float FinalIntegrity;
@@ -130,17 +129,6 @@ namespace DeliveryImpossible.Orders
             public int CheckpointsPassed => progress.Checkpoints;
             public int CheckpointCount => Definition.CheckpointCount;
             public float Heat => progress.Heat;
-            public bool IsSubstation => Definition.course?.Substation != null;
-            public float ChargeNormalized => Mathf.Clamp01(progress.Charge / TidalSubstation.ChargeSeconds);
-            public bool StationGateReady => campaign.StationGateProgress >= 0.999f;
-            public bool BeforeStationBridge => IsSubstation && CheckpointsPassed == TidalSubstation.FirstSteamBank &&
-                                               Definition.course.Substation.BeforeBridgeLanding(ActiveCargo.WorldCenter);
-            public bool StationSteamActive => TidalSubstation.IsSteamCheck(CheckpointsPassed) &&
-                                              TidalSubstation.SteamActive(CheckpointsPassed);
-            public int StationSteamSeconds => TidalSubstation.SteamSecondsRemaining(CheckpointsPassed);
-            public bool StationTeamLift => campaign.AllowsSharedLift(ActiveCargo);
-            public bool StationPartnerNeedsHelp => IsSubstation && LevelCargoCount == 2 && ActiveCargo == campaign.CargoAt(1)
-                && campaign.primaryProgress.State != DeliveryOrderState.Completed;
             public bool IsCooling => CurrentMechanic == DeliveryMechanic.ColdChain &&
                                      Definition.course.IsCooling(ActiveCargo.WorldCenter);
             public bool CurrentBeamActive => CurrentMechanic == DeliveryMechanic.Security &&
@@ -167,18 +155,7 @@ namespace DeliveryImpossible.Orders
 
                 DeliveryCourse course = Definition.course;
                 bool pickedUp = ActiveCargo.IsHeld;
-                if (IsSubstation && CheckpointsPassed == TidalSubstation.Charger &&
-                    (pickedUp || ChargeNormalized > 0f))
-                {
-                    marker = Definition.GetCheckpoint(TidalSubstation.Charger).transform.position;
-                    caption = "КОНТАКТНАЯ ПЛОЩАДКА";
-                }
-                else if (pickedUp && BeforeStationBridge)
-                {
-                    marker = course.Substation.BridgeLanding;
-                    caption = "МОСТ СПРАВА";
-                }
-                else if (CurrentMechanic == DeliveryMechanic.Drawbridge && !BridgePowered && pickedUp)
+                if (CurrentMechanic == DeliveryMechanic.Drawbridge && !BridgePowered && pickedUp)
                 {
                     marker = course.NearestPlate(viewer).transform.position;
                     caption = "УПРАВЛЕНИЕ МОСТОМ";
@@ -204,12 +181,6 @@ namespace DeliveryImpossible.Orders
                         DeliveryMechanic.Conveyor => "ПОСТ КОНТРОЛЯ",
                         DeliveryMechanic.Security => $"СКАНЕР {CheckpointsPassed + 1}",
                         DeliveryMechanic.ColdChain => $"ОХЛАЖДЕНИЕ {CheckpointsPassed + 1}/{CheckpointCount}",
-                        DeliveryMechanic.Docking when IsSubstation => CheckpointsPassed switch
-                        {
-                            TidalSubstation.FirstSteamBank => "ПАРОВОЙ КАНАЛ 1",
-                            TidalSubstation.FirstSteamBank + 1 => "ПАРОВОЙ КАНАЛ 2",
-                            _ => "ВЕРХНЯЯ ПЛОЩАДКА"
-                        },
                         DeliveryMechanic.Docking => CheckpointsPassed switch
                         {
                             0 => "ВЫХОД С МОСТИКА",
@@ -239,7 +210,6 @@ namespace DeliveryImpossible.Orders
         [SyncVar] private bool bridgePowered;
         [SyncVar] private double bridgeStartedAt;
         [SyncVar] private double bypassStartedAt;
-        [SyncVar] private double stationPowerAt;
         [SyncVar] private double nextLevelAt;
         [SyncVar] private CargoProgress primaryProgress;
         [SyncVar] private CargoProgress bonusProgress;
@@ -270,8 +240,6 @@ namespace DeliveryImpossible.Orders
         public bool BridgeReady => BridgeProgress >= 0.999f;
         public float BypassGateProgress => bypassStartedAt <= 0d ? 0f :
             Mathf.Clamp01((float)(NetworkTime.time - bypassStartedAt) / 0.85f);
-        public float StationGateProgress => stationPowerAt <= 0d ? 0f :
-            Mathf.Clamp01((float)(NetworkTime.time - stationPowerAt) / 1.2f);
         public int CompletedOrders => completedOrders;
         public int TotalScore => totalScore;
         public bool CampaignWon => shiftCompleted && completedOrders == TotalOrders;
@@ -289,9 +257,6 @@ namespace DeliveryImpossible.Orders
             startedAt > 0d ? Mathf.Max(0f, (float)(NetworkTime.time - startedAt)) : 0f;
 
         public bool UsesCourse(DeliveryCourse course) => ReferenceEquals(PrimaryOrder?.course, course);
-
-        public bool StationCircuitOnline(int circuit) => circuit < LevelCargoCount &&
-            GetProgress(circuit).State == DeliveryOrderState.Completed;
 
         public NetworkGrabbable CargoAt(int slot) => PrimaryOrder != null && slot >= 0 && slot < LevelCargoCount
             ? orders[currentOrderIndex + slot].targetCargo : null;
@@ -311,12 +276,7 @@ namespace DeliveryImpossible.Orders
             return cargo == CargoAt(1) ? 1 : -1;
         }
 
-        public bool AllowsSharedLift(NetworkGrabbable cargo) => cargo != null && cargo == CargoAt(0) &&
-            LevelCargoCount == 2 && PrimaryOrder.course?.Substation != null &&
-            primaryProgress.Checkpoints == TidalSubstation.LiftCheck;
-
-        public bool CanCarrySeparately(NetworkGrabbable cargo) => LevelCargoCount == 2 && SlotOf(cargo) >= 0 &&
-            !AllowsSharedLift(cargo);
+        public bool CanCarrySeparately(NetworkGrabbable cargo) => LevelCargoCount == 2 && SlotOf(cargo) >= 0;
 
         public bool AllowsPickup(NetworkGrabbable cargo)
         {
@@ -480,12 +440,10 @@ namespace DeliveryImpossible.Orders
 
             DeliveryCourse course = definition.course;
             DeliveryMechanic mechanic = course?.Mechanic ?? DeliveryMechanic.Standard;
-            TidalSubstation station = course?.Substation;
             bool beamsActive = mechanic == DeliveryMechanic.Security && progress.Checkpoints < definition.CheckpointCount &&
                                DeliveryCourse.IsScannerActive(progress.Checkpoints);
             Vector3 position = cargo.WorldCenter;
             bool onBelt = mechanic == DeliveryMechanic.Conveyor && course.IsOnBelt(position);
-            bool onCharger = false;
 
             if (onBelt && !cargo.IsHeld) course.DriveBelt(body);
             if (mechanic == DeliveryMechanic.ColdChain && progress.StartedAt > 0d)
@@ -500,21 +458,8 @@ namespace DeliveryImpossible.Orders
             }
             if (progress.State == DeliveryOrderState.InTransit)
             {
-                int stage = progress.Checkpoints;
-                bool atCheckpoint = definition.GetCheckpoint(stage).ContainsPoint(position);
-                if (station != null)
-                {
-                    station.ApplySteam(body, position);
-                    if (stage == TidalSubstation.Charger)
-                    {
-                        onCharger = atCheckpoint;
-                        bool resting = atCheckpoint && !cargo.IsHeld && body.linearVelocity.sqrMagnitude < 0.07f;
-                        progress.Charge = resting
-                            ? Mathf.Min(TidalSubstation.ChargeSeconds, progress.Charge + Time.fixedDeltaTime) : 0f;
-                    }
-                }
-
-                if (atCheckpoint)
+                DeliveryCheckpoint checkpoint = definition.GetCheckpoint(progress.Checkpoints);
+                if (checkpoint.ContainsPoint(position))
                 {
                     if (beamsActive && now >= nextBeamDamageAt[slot])
                     {
@@ -528,12 +473,6 @@ namespace DeliveryImpossible.Orders
                         DeliveryMechanic.Conveyor => progress.Checkpoints == 0 ? !cargo.IsHeld : canCarry,
                         DeliveryMechanic.Security => canCarry && !beamsActive,
                         DeliveryMechanic.ColdChain => canCarry && progress.Heat <= 0.23f,
-                        DeliveryMechanic.Docking when station != null && stage == TidalSubstation.Charger =>
-                            progress.Charge >= TidalSubstation.ChargeSeconds,
-                        DeliveryMechanic.Docking when station != null && TidalSubstation.IsSteamCheck(stage) =>
-                            canCarry && !TidalSubstation.SteamActive(stage),
-                        DeliveryMechanic.Docking when station != null && AllowsSharedLift(cargo) =>
-                            cargo.HolderCount >= 2,
                         _ => canCarry
                     };
                     if (canCross)
@@ -541,8 +480,6 @@ namespace DeliveryImpossible.Orders
                         progress.Checkpoints++;
                         if (mechanic == DeliveryMechanic.Conveyor && progress.Checkpoints == 1 && bypassStartedAt <= 0d)
                             bypassStartedAt = now;
-                        if (station != null && stage == TidalSubstation.Charger && stationPowerAt <= 0d)
-                            stationPowerAt = now;
                         if (progress.Checkpoints == definition.CheckpointCount)
                             progress.State = DeliveryOrderState.ReadyForDelivery;
                     }
@@ -553,7 +490,7 @@ namespace DeliveryImpossible.Orders
             wasHeld[slot] = cargo.IsHeld;
             bool inside = !cargo.IsHeld && (justDropped || progress.State == DeliveryOrderState.ReadyForDelivery) &&
                           definition.deliveryZone.ContainsEntireObject(cargo.gameObject);
-            if (justDropped && !inside && !onBelt && !onCharger) progress.Drops++;
+            if (justDropped && !inside && !onBelt) progress.Drops++;
 
             bool placed = progress.State == DeliveryOrderState.ReadyForDelivery && inside &&
                           (mechanic != DeliveryMechanic.Docking ||
@@ -594,11 +531,9 @@ namespace DeliveryImpossible.Orders
             foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers)
             {
                 if (courier.transform.position.y >= -5f) continue;
-                NetworkGrabbable held = courier.GetComponent<NetworkGrabber>().HeldObject;
-                int heldSlot = SlotOf(held);
-                if (heldSlot >= 0) BeginCargo(heldSlot, respawn: false);
-                int slot = heldSlot >= 0 ? heldSlot : SlotForCourier(courier, held);
-                ServerPlaceCourier(courier, RecoveryPoint(slot));
+                int slot = SlotOf(courier.GetComponent<NetworkGrabber>().HeldObject);
+                if (slot >= 0) BeginCargo(slot, respawn: false);
+                ServerPlaceCourier(courier);
             }
         }
 
@@ -612,7 +547,7 @@ namespace DeliveryImpossible.Orders
                 (cargo.IsHeld && cargo.FirstHolderNetId != courier.netId && cargo.SecondHolderNetId != courier.netId))
                 return;
             BeginCargo(slot, respawn: false);
-            ServerPlaceCourier(courier, RecoveryPoint(slot));
+            ServerPlaceCourier(courier);
         }
 
         [Server]
@@ -654,7 +589,6 @@ namespace DeliveryImpossible.Orders
             bridgePowered = false;
             bridgeStartedAt = 0d;
             bypassStartedAt = 0d;
-            stationPowerAt = 0d;
             nextLevelAt = 0d;
             primaryProgress = default;
             bonusProgress = default;
@@ -666,29 +600,12 @@ namespace DeliveryImpossible.Orders
         private void BeginCargo(int slot, bool respawn)
         {
             int index = currentOrderIndex + slot;
-            CargoProgress previous = GetProgress(slot);
-            Transform checkpoint = RecoveryPoint(slot);
-            if (checkpoint == null)
-            {
-                ResetCargo(index);
-            }
-            else
-            {
-                float side = slot == 0 ? -1.15f : 1.15f;
-                Vector3 position = checkpoint.position + checkpoint.right * side + checkpoint.forward * 2.05f +
-                                   Vector3.up * initialCargoPositions[index].y;
-                orders[index].targetCargo.ServerResetPose(position, checkpoint.rotation);
-                orders[index].Fragile?.ServerResetDamage();
-            }
-
+            uint lastCourier = GetProgress(slot).LastCourier;
+            ResetCargo(index);
             SetProgress(slot, new CargoProgress
             {
-                State = checkpoint == null ? DeliveryOrderState.AwaitingPickup :
-                    previous.Checkpoints == orders[index].CheckpointCount ? DeliveryOrderState.ReadyForDelivery : DeliveryOrderState.InTransit,
-                Checkpoints = checkpoint == null ? 0 : previous.Checkpoints,
-                LastCourier = previous.LastCourier,
-                StartedAt = checkpoint == null ? 0d : previous.StartedAt,
-                Drops = checkpoint == null ? 0 : previous.Drops + 1,
+                State = DeliveryOrderState.AwaitingPickup,
+                LastCourier = lastCourier,
                 Heat = orders[index].course?.Mechanic == DeliveryMechanic.ColdChain ? 0.29f : 0f
             });
             wasHeld[slot] = false;
@@ -699,25 +616,21 @@ namespace DeliveryImpossible.Orders
 
             foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers)
             {
-                bool responsible = previous.LastCourier != 0u
-                    ? courier.netId == previous.LastCourier : courier.PlayerNumber == slot + 1;
+                bool responsible = lastCourier != 0u ? courier.netId == lastCourier : courier.PlayerNumber == slot + 1;
                 if (responsible && courier.GetComponent<NetworkGrabber>().HeldObject == null)
-                    ServerPlaceCourier(courier, checkpoint);
+                    ServerPlaceCourier(courier);
             }
         }
 
         [Server]
-        public void ServerPlaceCourier(LobbyPlayer courier, Transform checkpoint = null)
+        public void ServerPlaceCourier(LobbyPlayer courier)
         {
-            Transform spawn = checkpoint != null ? checkpoint : PrimaryOrder.courierSpawn;
+            Transform spawn = PrimaryOrder.courierSpawn;
             if (spawn == null || NetworkSessionState.Active?.SessionStarted != true) return;
             float side = courier.PlayerNumber == 1 ? -1f : 1f;
             if (courier.TryGetComponent(out NetworkFirstPersonController controller))
                 controller.ServerEnterLevel(spawn.position + spawn.right * (1.15f * side), spawn.rotation);
         }
-
-        private Transform RecoveryPoint(int slot) =>
-            orders[currentOrderIndex + slot].course?.Substation?.RecoveryPoint(GetProgress(slot).Checkpoints);
 
         [Server]
         private void ResetCargo(int index)

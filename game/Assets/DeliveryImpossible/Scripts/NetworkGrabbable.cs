@@ -322,18 +322,10 @@ namespace DeliveryImpossible.Interaction
                 return false;
             }
 
-            bool joiningSharedLift = IsHeld && NetworkDeliveryOrder.Active?.AllowsSharedLift(this) == true;
-            if (joiningSharedLift)
-            {
-                HolderState current = serverHolders[0] ?? serverHolders[1];
-                current.LocalAnchor = NearestCarryAnchor(current.Holder.transform.position + Vector3.up * 1.1f);
-            }
-
             serverHolders[freeIndex] = new HolderState
             {
                 Holder = holder,
-                LocalAnchor = RequiresTeam || joiningSharedLift
-                    ? transform.InverseTransformPoint(worldGrabPoint) : body.centerOfMass,
+                LocalAnchor = RequiresTeam ? transform.InverseTransformPoint(worldGrabPoint) : body.centerOfMass,
                 Lowering = lowering,
                 SmoothedLowering = lowering,
                 TargetRotation = Quaternion.Euler(0f, body.rotation.eulerAngles.y, 0f),
@@ -342,22 +334,6 @@ namespace DeliveryImpossible.Interaction
             RefreshHolderSyncState();
             body.WakeUp();
             return true;
-        }
-
-        private Vector3 NearestCarryAnchor(Vector3 position)
-        {
-            Vector3 closest = WorldCenter;
-            float nearest = float.PositiveInfinity;
-            foreach (Collider candidate in cargoColliders)
-            {
-                if (!candidate.enabled || candidate.isTrigger) continue;
-                Vector3 point = candidate.ClosestPoint(position);
-                float distance = (point - position).sqrMagnitude;
-                if (distance >= nearest) continue;
-                closest = point;
-                nearest = distance;
-            }
-            return transform.InverseTransformPoint(closest);
         }
 
         [Server]
@@ -386,8 +362,6 @@ namespace DeliveryImpossible.Interaction
             }
 
             serverHolders[index] = null;
-            HolderState remaining = serverHolders[0] ?? serverHolders[1];
-            if (remaining != null && !RequiresTeam) remaining.LocalAnchor = body.centerOfMass;
             RefreshHolderSyncState();
             body?.WakeUp();
         }

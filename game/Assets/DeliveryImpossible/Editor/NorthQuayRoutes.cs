@@ -323,7 +323,7 @@ namespace DeliveryImpossible.Editor
             const float leftRail = 2.085f;
             const float rightRail = 6.11f;
             Floor(station, floor, 15f, -3f, nearEdge);
-            Floor(station, floor, 20f, farEdge, 76.05f);
+            Floor(station, floor, 20f, farEdge, 92.7f);
             Block(station, "Service footbridge floor", new Vector3(4.1f, -0.15f, (nearEdge + farEdge) * 0.5f),
                 new Vector3(4.25f, 0.30f, farEdge - nearEdge), deck, true);
             HarborRail(station, leftRail, nearEdge, farEdge, dark);
@@ -335,27 +335,50 @@ namespace DeliveryImpossible.Editor
             Guardrail(station, new Vector3(-9.72f, 0f, farEdge), new Vector3(leftRail, 0f, farEdge), dark);
             Guardrail(station, new Vector3(rightRail, 0f, farEdge), new Vector3(9.72f, 0f, farEdge), dark);
             CoursePost(station, "СЕРВИСНЫЙ МОСТ", new Vector3(5.82f, 0, 14.1f), amber, dark);
-            foreach (float x in new[] { -9.72f, 9.72f }) HarborRail(station, x, farEdge, 76f, dark);
+            foreach (float x in new[] { -9.72f, 9.72f }) HarborRail(station, x, farEdge, 92.45f, dark);
 
-            DeliveryCheckpoint[] checks = BuildSubstationStages(station, deck, wall, brick, dark, amber, light);
-            DeliveryZone main = ZoneAt(station, new Vector3(-4.2f, SubstationDeckHeight, 92.4f), 4.7f, 90f);
-            DeliveryZone backup = ZoneAt(station, new Vector3(4.2f, SubstationDeckHeight, 92.4f), 4.7f, -90f);
+            for (int index = 0; index < 5; index++)
+            {
+                float z = 35.2f + index * 10.7f;
+                foreach (float side in new[] { -1f, 1f })
+                {
+                    Vector3 prop = new Vector3(side * 6.95f, 0, z);
+                    RoundedBlock(station, "Turbine mount", prop + Vector3.up * 0.42f, new Vector3(2.7f, 0.84f, 3.2f), brick, solid: true);
+                    ImportedProp(index % 2 == 0 ? "Hopper" : "PipeValve", false, station, new Vector3(2.4f, 3.5f, 2.68f),
+                        prop + Vector3.up * 2.59f, side * 90f, solid: true);
+                    Block(station, "Turbine support", prop + Vector3.up * 2.9f, new Vector3(0.35f, 5.8f, 0.35f), dark, true);
+                }
+
+                Block(station, "Gantry span", new Vector3(0f, 5.52f, z), new Vector3(14.2f, 0.31f, 0.45f), dark);
+                Lamp(station, new Vector3(0f, 5.21f, z), new Color(1f, 0.79f, 0.57f), 12.0f, 5.3f);
+            }
+
+            Block(station, "Pump hall roof", new Vector3(0f, 6.22f, 76.0f), new Vector3(20.3f, 0.46f, 33.1f), wall);
+            Block(station, "Plant back wall", new Vector3(0f, 3.05f, 92.0f), new Vector3(20f, 6.11f, 0.4f), brick, true);
+            CheckArch(station, new Vector3(-2.3f, 0f, 48.2f), 6.12f, dark, light, "НАСОСНЫЙ УЗЕЛ");
+            CheckArch(station, new Vector3(1.2f, 0f, 68.45f), 6.33f, dark, light, "ЭНЕРГОСЕКЦИЯ");
+            CourseLabel(station, "ПРИЛИВНАЯ ПОДСТАНЦИЯ", new Vector3(0, 3.75f, 90.1f), 6.2f, light, dark);
+            RoundedBlock(station, "Substation control cabinet", new Vector3(0f, 1.06f, 89.8f),
+                new Vector3(4.1f, 2.12f, 1.95f), wall, solid: true);
+            DeliveryZone main = ZoneAt(station, new Vector3(-3.25f, 0, 84.2f), 4.7f, 90f);
+            DeliveryZone backup = ZoneAt(station, new Vector3(3.25f, 0, 84.2f), 4.7f, -90f);
             Arrow(main.transform, new Vector3(0, 0.047f, 0), light, 1.55f);
             Arrow(backup.transform, new Vector3(0, 0.047f, 0), amber, 1.55f);
-            RouteStuds(station, light, new Vector2(0f, 3.8f), new Vector2(0f, 8.1f));
-            RouteStuds(station, light, new Vector2(1.0f, 11.9f), new Vector2(4.1f, 14.9f),
-                new Vector2(4.1f, 29f), new Vector2(-2.95f, 38.05f));
-            RouteStuds(station, light, new Vector2(-2.95f, 42.55f), new Vector2(2.95f, 51.95f));
-            RouteStuds(station, light, new Vector2(2.95f, 56.45f), new Vector2(0f, 60.3f));
-            RouteStuds(station, light, SubstationDeckHeight, new Vector2(0f, 76.25f), new Vector2(0f, 79.4f));
+            RouteStuds(station, light, new Vector2(4.1f, 12f), new Vector2(4.1f, 29f), new Vector2(-2.3f, 45f),
+                new Vector2(-2.3f, 50.5f), new Vector2(1.2f, 66f), new Vector2(-3.25f, 82f));
             return new CampaignLevel
             {
-                Name = "ПРИЛИВНАЯ ПОДСТАНЦИЯ", Hint = "Запустите подстанцию. Контактная площадка перед мостом.",
+                Name = "ПРИЛИВНАЯ ПОДСТАНЦИЯ", Hint = "Пройдите по правому мостику через насосный узел к панели питания.",
                 Course = Course(station, DeliveryMechanic.Docking), Spawn = SpawnAt(station, Vector3.zero),
                 MainCargo = PutCargo(station, module, new Vector3(-1.28f, 0.52f, 3.15f), false, light),
                 BonusCargo = PutCargo(station, MakeSpecialCargo("OrbitalFuelCell"), new Vector3(2.78f, 0.61f, 2.84f), true, amber),
                 MainLabel = "Модуль питания", BonusLabel = "Резервный аккумулятор",
-                Checkpoints = checks,
+                Checkpoints = new[]
+                {
+                    Volume(station, "Service bridge exit", new Vector3(4.1f, 1.35f, 28.21f), new Vector3(4.7f, 2.75f, 2.38f)),
+                    Volume(station, "Pump node checkpoint", new Vector3(-2.3f, 1.44f, 48.2f), new Vector3(6.1f, 2.9f, 2.51f)),
+                    Volume(station, "Power hall entrance", new Vector3(1.2f, 1.44f, 68.45f), new Vector3(6.5f, 2.9f, 2.6f))
+                },
                 MainZone = main, BonusZone = backup
             };
         }

@@ -276,18 +276,6 @@ namespace DeliveryImpossible.UI
                             ? $"Дождитесь окна у сканера {order.CheckpointsPassed + 1}"
                             : "Пройдите через арку с грузом",
                         DeliveryMechanic.ColdChain => order.IsCooling ? "Охладите груз" : "Найдите охлаждение",
-                        DeliveryMechanic.Docking when order.IsSubstation =>
-                            order.CheckpointsPassed switch
-                            {
-                                TidalSubstation.Charger when order.ChargeNormalized > 0f => "Подключение груза",
-                                TidalSubstation.Charger => "Подайте питание на мост",
-                                _ when !order.StationGateReady => "Дождитесь открытия шлюза",
-                                _ when order.BeforeStationBridge => "Перейдите правый мост",
-                                _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) =>
-                                    order.StationSteamActive ? "Переждите выброс пара" : "Пройдите паровой канал",
-                                _ when order.StationTeamLift && order.ActiveCargo.HolderCount < 2 => "Поднимите модуль вдвоём",
-                                _ => "Несите груз на верхнюю площадку"
-                            },
                         DeliveryMechanic.Docking => "Доставьте модуль на подстанцию",
                         _ => $"ПРОЙДИТЕ ВОРОТА {order.CheckpointsPassed + 1}/{order.CheckpointCount}"
                     };
@@ -314,30 +302,6 @@ namespace DeliveryImpossible.UI
                             ? "Красные лучи повредят груз. До выключения остаётся время на панели."
                             : "Перенесите груз за арку, пока лучи погашены.";
                     }
-                    else if (order.IsSubstation)
-                    {
-                        routeHint = order.CheckpointsPassed switch
-                        {
-                            TidalSubstation.Charger => "Поставьте груз на контакты с E и дождитесь зелёного сигнала.",
-                            _ when !order.StationGateReady => "Заберите груз. Шлюз у правого моста открывается.",
-                            _ when order.BeforeStationBridge => "Следуйте по меткам к шлюзу и через мост.",
-                            _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) =>
-                                order.StationSteamActive ? "Пар толкает груз. Укрытие находится перед каналом." :
-                                    "Пронесите груз под зелёным сигналом. За каналом сохранится прогресс.",
-                            _ when order.StationTeamLift =>
-                                "Поднимитесь по пандусу. Возьмитесь с двух сторон и вместе войдите в разметку.",
-                            _ => "Поднимитесь по пандусу и пронесите груз через разметку."
-                        };
-                        cargoType = order.CheckpointsPassed switch
-                        {
-                            TidalSubstation.Charger => $"ЗАРЯД {Mathf.RoundToInt(order.ChargeNormalized * 100f)}%",
-                            _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) && order.StationGateReady &&
-                                   !order.BeforeStationBridge =>
-                                order.StationSteamActive ? $"ПАР {order.StationSteamSeconds} С" : $"ПРОХОД {order.StationSteamSeconds} С",
-                            _ when order.StationTeamLift => $"ПОДЪЁМ {order.ActiveCargo.HolderCount}/2",
-                            _ => ""
-                        };
-                    }
                     else if (order.CurrentOrderRequiresTeam)
                     {
                         routeHint += "Несите груз вместе.";
@@ -353,9 +317,7 @@ namespace DeliveryImpossible.UI
 
                 case DeliveryOrderState.Completed:
                     objectiveText.text = "ЗАКАЗ ВЫПОЛНЕН";
-                    SetText(objectiveHintText, order.StationPartnerNeedsHelp
-                        ? "Резерв включён. Помогите напарнику поднять модуль на верхней площадке."
-                        : order.AcceptedThisLevel < order.LevelCargoCount
+                    SetText(objectiveHintText, order.AcceptedThisLevel < order.LevelCargoCount
                         ? "Доставьте второй груз, чтобы открыть следующий участок."
                         : order.CurrentOrderIsFragile
                             ? $"ОЦЕНКА: {order.LastGrade} · ЦЕЛОСТНОСТЬ: {Mathf.RoundToInt(order.CurrentIntegrity * 100f)}% · ДАЛЬШЕ: {order.TransitionSecondsRemaining} СЕК."
