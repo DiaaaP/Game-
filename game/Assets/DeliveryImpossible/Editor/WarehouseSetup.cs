@@ -159,11 +159,11 @@ namespace DeliveryImpossible.Editor
             machine.defaultState = idle;
             AnimatorStateTransition start = idle.AddTransition(walk);
             start.hasExitTime = false;
-            start.duration = 0.12f;
+            start.duration = 0.055f;
             start.AddCondition(AnimatorConditionMode.Greater, 0.25f, "Speed");
             AnimatorStateTransition stop = walk.AddTransition(idle);
             stop.hasExitTime = false;
-            stop.duration = 0.12f;
+            stop.duration = 0.055f;
             stop.AddCondition(AnimatorConditionMode.Less, 0.16f, "Speed");
             return controller;
         }

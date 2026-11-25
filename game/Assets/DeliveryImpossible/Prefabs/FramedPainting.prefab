@@ -138,8 +138,6 @@ MonoBehaviour:
   - {fileID: 7642858959412936240}
   - {fileID: 2406115158956823680}
   - {fileID: 9133373375082516750}
-  clientPositionLerp: 22
-  clientRotationLerp: 18
 --- !u!114 &1493251224071222734
 MonoBehaviour:
   m_ObjectHideFlags: 0

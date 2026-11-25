@@ -28,6 +28,7 @@ namespace DeliveryImpossible.Orders
 
         public DeliveryMechanic Mechanic => mechanic;
         public Transform BeltLoadPoint => beltLoadPoint;
+        public TidalSubstation Substation { get; private set; }
         public const float BridgeTravelSeconds = 2.8f;
         private const float ScannerCycleSeconds = 7.4f;
         private const float ScannerActiveSeconds = 3.15f;
@@ -39,6 +40,8 @@ namespace DeliveryImpossible.Orders
 
         private void Awake()
         {
+            TryGetComponent(out TidalSubstation substation);
+            Substation = substation;
             scenery = GetComponentsInChildren<Renderer>(true);
             lights = GetComponentsInChildren<Light>(true);
             if (bridgeDeck != null) bridgeColliders = bridgeDeck.GetComponentsInChildren<Collider>();
@@ -75,6 +78,10 @@ namespace DeliveryImpossible.Orders
                 {
                     securityBeams[index].SetActive(!active || IsScannerActive(index));
                 }
+            }
+            else if (Substation != null)
+            {
+                Substation.UpdateDisplays(order, active, visible);
             }
         }
 

@@ -621,5 +621,3 @@ MonoBehaviour:
   - {fileID: 2449127065348722934}
   - {fileID: 4153337828995071912}
   - {fileID: 2198074996806700574}
-  clientPositionLerp: 22
-  clientRotationLerp: 18

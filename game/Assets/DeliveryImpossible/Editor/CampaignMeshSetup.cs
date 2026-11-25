@@ -6,7 +6,8 @@ namespace DeliveryImpossible.Editor
 {
     public static partial class WarehouseSetup
     {
-        private static Renderer RoundedBlock(Transform parent, string label, Vector3 position, Vector3 size, Material material)
+        private static Renderer RoundedBlock(Transform parent, string label, Vector3 position, Vector3 size,
+            Material material, bool solid = false)
         {
             Transform form = Child(parent, label);
             form.localPosition = position;
@@ -14,17 +15,20 @@ namespace DeliveryImpossible.Editor
             form.gameObject.AddComponent<MeshFilter>().sharedMesh = AuthoredMesh("RoundedHousing", BuildRoundedHousing);
             var surface = form.gameObject.AddComponent<MeshRenderer>();
             surface.sharedMaterial = material;
+            if (solid) form.gameObject.AddComponent<BoxCollider>();
             return surface;
         }
 
         private static Renderer LathedProp(Transform parent, string label, Vector3 position, Material material,
-            string meshName, Vector2[] profile)
+            string meshName, Vector2[] profile, bool solid = false)
         {
             Transform form = Child(parent, label);
             form.localPosition = position;
-            form.gameObject.AddComponent<MeshFilter>().sharedMesh = AuthoredMesh(meshName, () => BuildLathe(profile));
+            Mesh mesh = AuthoredMesh(meshName, () => BuildLathe(profile));
+            form.gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
             var surface = form.gameObject.AddComponent<MeshRenderer>();
             surface.sharedMaterial = material;
+            if (solid) form.gameObject.AddComponent<MeshCollider>().sharedMesh = mesh;
             return surface;
         }
 

@@ -27,7 +27,7 @@ namespace DeliveryImpossible.Editor
                 float z = 4.3f + rack * 11.7f;
                 float x = rack % 2 == 0 ? -9.20f : 9.20f;
                 var position = new Vector3(x, 2.82f, z);
-                Block(hall, "Wall mounted tool cabinet", position, new Vector3(0.58f, 1.46f, 2.42f), hardware);
+                Block(hall, "Wall mounted tool cabinet", position, new Vector3(0.58f, 1.46f, 2.42f), hardware, true);
                 for (int row = 0; row < 5; row++)
                     Block(hall, "Cabinet drawer pull", position + new Vector3(-Mathf.Sign(x) * 0.315f, row * 0.22f - 0.42f, 0),
                         new Vector3(0.07f, 0.046f, 1.1f), frame);
@@ -49,13 +49,13 @@ namespace DeliveryImpossible.Editor
                     float z = 3.15f + bay * 9.95f;
                     float x = sign * 9.53f;
                     Block(hall, "Timber archive panelling", new Vector3(sign * 9.77f, 0.78f, z),
-                        new Vector3(0.18f, 1.53f, 9.30f), timber);
+                        new Vector3(0.18f, 1.53f, 9.30f), timber, true);
                     Block(hall, "Timber dado trim", new Vector3(sign * 9.66f, 1.57f, z),
                         new Vector3(0.16f, 0.14f, 9.32f), frame);
                     if ((bay + (sign > 0f ? 1 : 0)) % 2 == 0)
                     {
                         Block(hall, "Document card alcove", new Vector3(x, 2.60f, z),
-                            new Vector3(0.24f, 1.58f, 3.65f), frame);
+                            new Vector3(0.24f, 1.58f, 3.65f), frame, true);
                         Block(hall, "Framed navigation chart", new Vector3(x - sign * 0.135f, 2.60f, z),
                             new Vector3(0.07f, 1.22f, 3.28f), parchment);
                         for (int line = 0; line < 6; line++)
@@ -66,11 +66,11 @@ namespace DeliveryImpossible.Editor
                         }
                         continue;
                     }
-                    Block(hall, "Archive shelving case", new Vector3(x, 2.3f, z), new Vector3(0.48f, 2.15f, 3.7f), timber);
+                    Block(hall, "Archive shelving case", new Vector3(x, 2.3f, z), new Vector3(0.48f, 2.15f, 3.7f), timber, true);
                     for (int shelf = 0; shelf < 3; shelf++)
                     {
                         float y = 1.48f + shelf * 0.61f;
-                        Block(hall, "Shelf edge", new Vector3(x - sign * 0.27f, y, z), new Vector3(0.25f, 0.085f, 3.66f), frame);
+                        Block(hall, "Shelf edge", new Vector3(x - sign * 0.27f, y, z), new Vector3(0.25f, 0.085f, 3.66f), frame, true);
                         for (int book = 0; book < 11; book++)
                         {
                             float height = 0.27f + 0.055f * ((book * 3 + shelf + bay) % 4);
@@ -94,10 +94,10 @@ namespace DeliveryImpossible.Editor
                 foreach (float side in new[] { -1f, 1f })
                 {
                     Block(hall, "Archive portal jamb", door + new Vector3(side * 2.20f, 1.01f, -0.252f),
-                        new Vector3(0.24f, 2.02f, 0.125f), parchment);
+                        new Vector3(0.24f, 2.02f, 0.125f), parchment, true);
                     Vector3 lantern = door + new Vector3(side * 3.0f, 2.63f, -0.47f);
                     Material mantle = Material("Archive Amber Sconce", "#FFC982", emissive: true);
-                    RoundedBlock(hall, "Wall sconce housing", lantern, new Vector3(0.31f, 0.43f, 0.26f), brass);
+                    RoundedBlock(hall, "Wall sconce housing", lantern, new Vector3(0.31f, 0.43f, 0.26f), brass, solid: true);
                     Block(hall, "Wall sconce window", lantern + Vector3.back * 0.14f, new Vector3(0.17f, 0.24f, 0.04f), mantle);
                     Lamp(hall, lantern + Vector3.back * 0.19f, new Color(1f, 0.66f, 0.39f), 5.6f, 2.25f);
                 }
@@ -105,8 +105,8 @@ namespace DeliveryImpossible.Editor
             foreach (float x in new[] { -6.0f, 6.0f })
             {
                 Vector3 plinth = new Vector3(x, 0.52f, 11.3f);
-                RoundedBlock(hall, "Chart exhibit pedestal", plinth, new Vector3(1.65f, 1.04f, 1.22f), timber);
-                Block(hall, "Chart display frame", plinth + Vector3.up * 0.54f, new Vector3(1.53f, 0.12f, 1.1f), brass);
+                RoundedBlock(hall, "Chart exhibit pedestal", plinth, new Vector3(1.65f, 1.04f, 1.22f), timber, solid: true);
+                Block(hall, "Chart display frame", plinth + Vector3.up * 0.54f, new Vector3(1.53f, 0.12f, 1.1f), brass, true);
                 Block(hall, "Chart display insert", plinth + Vector3.up * 0.612f, new Vector3(1.31f, 0.027f, 0.9f), glass);
             }
         }
@@ -129,7 +129,7 @@ namespace DeliveryImpossible.Editor
                         Quaternion.Euler(90f, 0f, 0f));
                     Block(hall, "Pipe support bracket", new Vector3(x, 5.79f, z), new Vector3(0.18f, 0.68f, 0.17f), clip);
                     Block(hall, "Wall refrigeration panel", new Vector3(side * 10.77f, 2.45f, z),
-                        new Vector3(0.23f, 3.56f, 3.15f), steel);
+                        new Vector3(0.23f, 3.56f, 3.15f), steel, true);
                     Block(hall, "Refrigeration panel status", new Vector3(side * 10.63f, 3.8f, z),
                         new Vector3(0.08f, 0.08f, 2.47f), ice);
                     for (int vane = 0; vane < 7; vane++)

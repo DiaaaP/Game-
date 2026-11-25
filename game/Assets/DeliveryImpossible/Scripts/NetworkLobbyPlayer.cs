@@ -108,10 +108,7 @@ namespace DeliveryImpossible.Networking
         [Command]
         private void CmdRequestCargoRecovery()
         {
-            if (connectionToClient.connectionId == 0)
-            {
-                NetworkDeliveryOrder.Active?.ServerRecoverCargo();
-            }
+            NetworkDeliveryOrder.Active?.ServerRecoverCargo(this);
         }
 
         [Command]

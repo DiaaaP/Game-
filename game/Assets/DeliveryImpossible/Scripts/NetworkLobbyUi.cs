@@ -154,7 +154,7 @@ namespace DeliveryImpossible.UI
                 pauseOpen = !pauseOpen;
             }
 
-            if (sessionStarted && NetworkServer.active && !pauseOpen && !ShowsCampaignResults &&
+            if (sessionStarted && !pauseOpen && !ShowsCampaignResults &&
                 Keyboard.current?.rKey.wasPressedThisFrame == true)
             {
                 LobbyPlayer.LocalPlayer?.RequestCargoRecovery();
@@ -199,7 +199,7 @@ namespace DeliveryImpossible.UI
             }
 
             pausePanel?.SetActive(pauseOpen);
-            if (retryShiftButton != null) retryShiftButton.interactable = NetworkServer.active && !ShowsCampaignResults;
+            if (retryShiftButton != null) retryShiftButton.interactable = !ShowsCampaignResults;
             campaignResultsPanel?.SetActive(ShowsCampaignResults);
             if (ShowsCampaignResults)
             {
@@ -404,7 +404,7 @@ namespace DeliveryImpossible.UI
 
         private void RetryShift()
         {
-            if (NetworkServer.active) LobbyPlayer.LocalPlayer?.RequestCargoRecovery();
+            LobbyPlayer.LocalPlayer?.RequestCargoRecovery();
             pauseOpen = false;
         }
 

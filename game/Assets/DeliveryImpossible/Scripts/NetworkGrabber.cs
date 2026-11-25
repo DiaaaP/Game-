@@ -27,20 +27,27 @@ namespace DeliveryImpossible.Interaction
 
         [Header("Networking")]
         [SerializeField, Range(5f, 30f)] private float poseSendRate = 20f;
-        [SerializeField, Min(1f)] private float maxTargetDistanceFromPlayer = 4.5f;
 
         [SyncVar(hook = nameof(OnHeldIdentityChanged))]
         private NetworkIdentity heldIdentity;
+        [SyncVar] private float networkLowering;
 
         private NetworkGrabbable hovered;
         private Vector3 hoveredGrabPoint;
         private NetworkGrabbable serverHeld;
+        private NetworkGrabbable ignoredCargo;
+        private CharacterController carrierCollider;
         private Quaternion carryRotation = Quaternion.identity;
         private uint pendingGrabNetId;
         private double nextPoseSendTime;
 
         public NetworkGrabbable HeldObject =>
             heldIdentity != null ? heldIdentity.GetComponent<NetworkGrabbable>() : null;
+
+        private void Awake()
+        {
+            carrierCollider = GetComponent<CharacterController>();
+        }
 
         private void Update()
         {
@@ -87,8 +94,7 @@ namespace DeliveryImpossible.Interaction
                 if (Time.unscaledTimeAsDouble >= nextPoseSendTime)
                 {
                     nextPoseSendTime = Time.unscaledTimeAsDouble + 1d / poseSendRate;
-                    GetDesiredPose(out Vector3 targetPosition, out Quaternion targetRotation);
-                    CmdUpdateHeldPose(targetPosition, targetRotation);
+                    CmdUpdateHeldPose(ReadLowering(), carryRotation);
                 }
 
                 return;
@@ -102,8 +108,7 @@ namespace DeliveryImpossible.Interaction
 
             carryRotation = Quaternion.Euler(0f, hovered.transform.eulerAngles.y, 0f);
             pendingGrabNetId = hovered.netId;
-            GetDesiredPose(out Vector3 desiredPosition, out Quaternion desiredRotation);
-            CmdTryGrab(hovered.netId, hoveredGrabPoint, desiredPosition, desiredRotation);
+            CmdTryGrab(hovered.netId, hoveredGrabPoint, ReadLowering());
         }
 
         private void UpdateHoveredObject()
@@ -133,17 +138,23 @@ namespace DeliveryImpossible.Interaction
 
             if (candidate == null)
             {
-                NetworkGrabbable nearby = NetworkDeliveryOrder.Active?.ActiveCargo;
-                if (nearby != null && nearby.CanPickUp && nearby.DistanceFrom(ray.origin) <= 3.3f)
+                NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
+                float bestAim = 0.65f;
+                for (int slot = 0; order != null && slot < order.LevelCargoCount; slot++)
                 {
+                    NetworkGrabbable nearby = order.CargoAt(slot);
+                    if (nearby == null || !nearby.CanPickUp || nearby.DistanceFrom(ray.origin) > 3.3f)
+                        continue;
                     Vector3 direction = nearby.WorldCenter - ray.origin;
-                    if (Vector3.Dot(ray.direction, direction.normalized) >= 0.65f &&
+                    float aim = Vector3.Dot(ray.direction, direction.normalized);
+                    if (aim >= bestAim &&
                         Physics.Raycast(ray.origin, direction.normalized, out RaycastHit direct, direction.magnitude + 0.16f,
                             interactionMask, QueryTriggerInteraction.Ignore) &&
                         direct.collider.GetComponentInParent<NetworkGrabbable>() == nearby)
                     {
                         candidate = nearby;
                         hoveredGrabPoint = direct.point;
+                        bestAim = aim;
                     }
                 }
             }
@@ -187,6 +198,11 @@ namespace DeliveryImpossible.Interaction
                     action = "Отпустить";
                     hint = GetCargoConditionHint(held, "НАПАРНИК ДЕРЖИТ ВТОРУЮ СТОРОНУ");
                 }
+                else if (held.HolderCount == 2)
+                {
+                    action = "Отпустить";
+                    hint = "Вы держите модуль вдвоём.";
+                }
                 else
                 {
                     action = "Отпустить";
@@ -195,7 +211,7 @@ namespace DeliveryImpossible.Interaction
             }
             else if (hovered != null)
             {
-                if (hovered.RequiresTeam && hovered.HolderCount > 0)
+                if (hovered.HolderCount > 0)
                 {
                     action = "Помочь нести";
                     hint = "";
@@ -248,24 +264,23 @@ namespace DeliveryImpossible.Interaction
                 : $"ЦЕЛОСТНОСТЬ: {fragileCargo.IntegrityPercent}%";
         }
 
-        private void GetDesiredPose(out Vector3 position, out Quaternion rotation)
+        private float ReadLowering() => playerCamera != null
+            ? Mathf.Clamp01(-playerCamera.transform.forward.y * 1.75f) : 0f;
+
+        internal float VisualLowering => isLocalPlayer ? ReadLowering() : networkLowering;
+
+        internal Vector3 CarryCenter(float lowering)
         {
-            float lowering = Mathf.Clamp01(-playerCamera.transform.forward.y * 1.75f);
             float height = Mathf.Lerp(1.10f, 0.66f, lowering);
-            position = transform.position + transform.forward * Mathf.Clamp(holdDistance, 1.45f, 1.85f) + Vector3.up * height;
-            rotation = carryRotation;
+            return transform.position + transform.forward * Mathf.Clamp(holdDistance, 1.45f, 1.85f) + Vector3.up * height;
         }
 
         [Command]
-        private void CmdTryGrab(
-            uint targetNetId,
-            Vector3 worldGrabPoint,
-            Vector3 desiredPosition,
-            Quaternion desiredRotation)
+        private void CmdTryGrab(uint targetNetId, Vector3 worldGrabPoint, float lowering)
         {
             if (serverHeld != null ||
                 !IsFinite(worldGrabPoint) ||
-                !IsFinite(desiredPosition, desiredRotation) ||
+                !float.IsFinite(lowering) ||
                 !NetworkServer.spawned.TryGetValue(targetNetId, out NetworkIdentity targetIdentity))
             {
                 return;
@@ -275,32 +290,37 @@ namespace DeliveryImpossible.Interaction
             Vector3 interactionOrigin = transform.position + Vector3.up * 1.5f;
             if (target == null ||
                 target.DistanceFrom(interactionOrigin) > interactionDistance + 0.5f ||
-                target.DistanceFrom(worldGrabPoint) > 0.5f ||
-                Vector3.Distance(transform.position, desiredPosition) > maxTargetDistanceFromPlayer)
+                target.DistanceFrom(worldGrabPoint) > 0.5f)
             {
                 return;
             }
 
-            if (!target.ServerBeginGrab(this, worldGrabPoint, desiredPosition, desiredRotation))
+            lowering = Mathf.Clamp01(lowering);
+            if (!target.ServerBeginGrab(this, worldGrabPoint, lowering))
             {
                 return;
             }
 
             serverHeld = target;
+            networkLowering = lowering;
             heldIdentity = targetIdentity;
+            SetIgnoredCargo(target);
         }
 
         [Command(channel = Channels.Unreliable)]
-        private void CmdUpdateHeldPose(Vector3 desiredPosition, Quaternion desiredRotation)
+        private void CmdUpdateHeldPose(float lowering, Quaternion desiredRotation)
         {
-            if (serverHeld == null ||
-                !IsFinite(desiredPosition, desiredRotation) ||
-                Vector3.Distance(transform.position, desiredPosition) > maxTargetDistanceFromPlayer)
+            if (serverHeld == null || !float.IsFinite(lowering) ||
+                !float.IsFinite(desiredRotation.y) || !float.IsFinite(desiredRotation.w))
             {
                 return;
             }
 
-            serverHeld.ServerSetTargetPose(this, desiredPosition, desiredRotation);
+            networkLowering = Mathf.Clamp01(lowering);
+            // Only the vertical placement and yaw come from the carrier.
+            // The server already has the carrier's movement and builds the target from that.
+            var yaw = new Quaternion(0f, desiredRotation.y, 0f, desiredRotation.w).normalized;
+            serverHeld.ServerSetTargetPose(this, networkLowering, yaw);
         }
 
         [Command]
@@ -324,10 +344,12 @@ namespace DeliveryImpossible.Interaction
             serverHeld = null;
             heldIdentity = null;
             released.ServerEndGrab(this);
+            SetIgnoredCargo(null);
         }
 
         private void OnHeldIdentityChanged(NetworkIdentity _, NetworkIdentity current)
         {
+            SetIgnoredCargo(current != null ? current.GetComponent<NetworkGrabbable>() : null);
             if (!isLocalPlayer || current == null)
             {
                 pendingGrabNetId = 0;
@@ -343,15 +365,22 @@ namespace DeliveryImpossible.Interaction
             nextPoseSendTime = 0d;
         }
 
-        private static bool IsFinite(Vector3 position, Quaternion rotation)
+        private void SetIgnoredCargo(NetworkGrabbable cargo)
         {
-            return float.IsFinite(position.x) &&
-                   float.IsFinite(position.y) &&
-                   float.IsFinite(position.z) &&
-                   float.IsFinite(rotation.x) &&
-                   float.IsFinite(rotation.y) &&
-                   float.IsFinite(rotation.z) &&
-                   float.IsFinite(rotation.w);
+            if (ignoredCargo == cargo) return;
+            SetCargoCollision(ignoredCargo, false);
+            ignoredCargo = cargo;
+            SetCargoCollision(ignoredCargo, true);
+        }
+
+        private void SetCargoCollision(NetworkGrabbable cargo, bool ignore)
+        {
+            if (carrierCollider == null || cargo == null) return;
+            foreach (Collider obstacle in cargo.CargoColliders)
+            {
+                if (obstacle != null && !obstacle.isTrigger)
+                    Physics.IgnoreCollision(carrierCollider, obstacle, ignore);
+            }
         }
 
         private static bool IsFinite(Vector3 position)
@@ -416,6 +445,7 @@ namespace DeliveryImpossible.Interaction
         private void OnDisable()
         {
             SetHovered(null);
+            SetIgnoredCargo(null);
         }
     }
 }

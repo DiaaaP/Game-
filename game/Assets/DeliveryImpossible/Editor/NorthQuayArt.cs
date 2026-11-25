@@ -147,23 +147,48 @@ namespace DeliveryImpossible.Editor
         }
 
         private static GameObject ImportedProp(string model, bool maritime, Transform parent, Vector3 size,
-            Vector3 center, float yaw = 0f)
+            Vector3 center, float yaw = 0f, bool solid = false)
         {
             GameObject prop = FitModel("Port/" + model, parent, size, center, yaw, true);
             string palette = maritime ? "BoatPalette" : "FactoryPalette";
             Texture2D atlas = AssetDatabase.LoadAssetAtPath<Texture2D>(Models + "Port/" + palette + ".png");
             AssignMaterial(prop, Material(palette, "#DDE2DE", atlas));
+            if (solid)
+            {
+                foreach (MeshFilter mesh in prop.GetComponentsInChildren<MeshFilter>())
+                {
+                    if (mesh.sharedMesh == null) continue;
+                    Bounds bounds = mesh.sharedMesh.bounds;
+                    if (bounds.size.x < 0.001f || bounds.size.y < 0.001f || bounds.size.z < 0.001f) continue;
+                    BoxCollider collider = mesh.gameObject.AddComponent<BoxCollider>();
+                    collider.center = bounds.center;
+                    collider.size = bounds.size;
+                }
+            }
             return prop;
         }
 
-        private static void HarborRail(Transform quay, float x, float from, float to, Material rail)
+        private static void HarborRail(Transform quay, float x, float from, float to, Material rail) =>
+            Guardrail(quay, new Vector3(x, 0f, from), new Vector3(x, 0f, to), rail);
+
+        private static void Guardrail(Transform parent, Vector3 start, Vector3 end, Material rail)
         {
-            Block(quay, "Steel guard rail", new Vector3(x, 0.92f, (from + to) * 0.5f),
-                new Vector3(0.11f, 0.105f, to - from), rail, true);
-            Block(quay, "Lower rail", new Vector3(x, 0.44f, (from + to) * 0.5f),
-                new Vector3(0.075f, 0.075f, to - from), rail, true);
-            for (float z = from; z <= to; z += 2.55f)
-                Block(quay, "Rail upright", new Vector3(x, 0.46f, z), new Vector3(0.105f, 0.92f, 0.10f), rail);
+            Vector3 span = end - start;
+            float length = span.magnitude;
+            Transform section = Child(parent, "Guardrail");
+            section.SetLocalPositionAndRotation((start + end) * 0.5f, Quaternion.LookRotation(span));
+
+            BoxCollider barrier = section.gameObject.AddComponent<BoxCollider>();
+            barrier.center = Vector3.up * 0.49f;
+            barrier.size = new Vector3(0.11f, 0.98f, length);
+            Block(section, "Steel guard rail", Vector3.up * 0.92f, new Vector3(0.11f, 0.105f, length), rail);
+            Block(section, "Lower rail", Vector3.up * 0.44f, new Vector3(0.075f, 0.075f, length), rail);
+            int gaps = Mathf.CeilToInt(length / 2.55f);
+            for (int index = 0; index < gaps; index++)
+            {
+                float z = Mathf.Lerp(-length * 0.5f, length * 0.5f, (index + 0.5f) / gaps);
+                Block(section, "Rail upright", new Vector3(0f, 0.46f, z), new Vector3(0.105f, 0.92f, 0.10f), rail);
+            }
         }
 
         private static void BerthScenery(Transform quay, Material steel)
@@ -176,11 +201,9 @@ namespace DeliveryImpossible.Editor
             for (int index = 0; index < 6; index++)
             {
                 Vector3 point = new Vector3(-7.9f, 1.17f, 32f + index * 5f);
-                ImportedProp("Container", true, quay, new Vector3(2.3f, 2.4f, 4.7f), point);
+                ImportedProp("Container", true, quay, new Vector3(2.3f, 2.4f, 4.7f), point, solid: true);
                 if (index % 2 == 0)
-                    ImportedProp("Container", true, quay, new Vector3(2.3f, 2.4f, 4.7f), point + Vector3.up * 2.14f);
-                if (index < 3)
-                    Block(quay, "Container collision", point, new Vector3(2.15f, 2.3f, 4.45f), steel, true).enabled = false;
+                    ImportedProp("Container", true, quay, new Vector3(2.3f, 2.4f, 4.7f), point + Vector3.up * 2.4f, solid: true);
             }
 
             Material rock = QuaySurface("Breakwater Stone", "IndustrialFloor", "#778687", 3.36f);

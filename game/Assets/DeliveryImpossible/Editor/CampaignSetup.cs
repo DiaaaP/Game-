@@ -6,7 +6,8 @@ namespace DeliveryImpossible.Editor
 {
     public static partial class WarehouseSetup
     {
-        private static GameObject MakeCampaignCargo(string name, Vector3 size, float mass, bool fragile = false)
+        private static GameObject MakeCampaignCargo(string name, Vector3 size, float mass, bool fragile = false,
+            int maxHolders = 1)
         {
             GameObject cargo = new GameObject(name);
             try
@@ -20,7 +21,7 @@ namespace DeliveryImpossible.Editor
                 cargo.AddComponent<BoxCollider>().size = size;
                 NetworkGrabbable grabbable = cargo.AddComponent<NetworkGrabbable>();
                 SerializedObject hold = new SerializedObject(grabbable);
-                hold.FindProperty("maxHolders").intValue = 1;
+                hold.FindProperty("maxHolders").intValue = maxHolders;
                 hold.ApplyModifiedPropertiesWithoutUndo();
 
                 Transform art = Child(cargo.transform, "Cargo Model");
@@ -92,7 +93,7 @@ namespace DeliveryImpossible.Editor
         }
 
         private static void Cylinder(Transform parent, string name, Vector3 position, float diameter, float depth,
-            Material material, Quaternion rotation)
+            Material material, Quaternion rotation, bool solid = false)
         {
             GameObject disk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             disk.name = name;
@@ -100,6 +101,7 @@ namespace DeliveryImpossible.Editor
             disk.transform.SetLocalPositionAndRotation(position, rotation);
             disk.transform.localScale = new Vector3(diameter, depth / 2f, diameter);
             Object.DestroyImmediate(disk.GetComponent<Collider>());
+            if (solid) disk.AddComponent<MeshCollider>().sharedMesh = disk.GetComponent<MeshFilter>().sharedMesh;
             disk.GetComponent<Renderer>().sharedMaterial = material;
         }
     }

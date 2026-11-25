@@ -17,22 +17,25 @@ namespace DeliveryImpossible.Editor
             Material sea = OpenWater();
 
             Block(quay, "Outer harbor water", new Vector3(0f, -1.44f, 40f), new Vector3(620f, 0.16f, 670f), sea);
-            Floor(quay, timber, 16f, -3f, 13.0f);
-            Floor(quay, timber, 20f, 23.10f, 71f);
+            const float nearEdge = 13f;
+            const float farEdge = 23.10f;
+            const float railOffset = 2.56f;
+            Floor(quay, timber, 16f, -3f, nearEdge);
+            Floor(quay, timber, 20f, farEdge, 71f);
             Block(quay, "Pier foundation A", new Vector3(0f, -0.78f, 5.0f), new Vector3(16f, 0.97f, 16f), concrete);
             Block(quay, "Pier foundation B", new Vector3(0f, -0.78f, 47.05f), new Vector3(20f, 0.97f, 47.9f), concrete);
-            Block(quay, "Arrival guardrail", new Vector3(0f, 0.60f, -2.83f),
-                new Vector3(15.8f, 1.2f, 0.15f), steel, true).enabled = false;
+            Guardrail(quay, new Vector3(-7.84f, 0f, -2.8f), new Vector3(7.84f, 0f, -2.8f), steel);
+            Guardrail(quay, new Vector3(-9.83f, 0f, 70.75f), new Vector3(9.83f, 0f, 70.75f), steel);
 
             foreach (float side in new[] { -1f, 1f })
             {
-                HarborRail(quay, side * 7.84f, -2.8f, 12.85f, steel);
-                HarborRail(quay, side * 9.83f, 23.27f, 70.75f, steel);
-                Block(quay, "Bridge edge railing", new Vector3(side * 5.35f, 0.88f, 12.8f),
-                    new Vector3(5.34f, 0.12f, 0.12f), steel, true);
+                HarborRail(quay, side * 7.84f, -2.8f, nearEdge, steel);
+                HarborRail(quay, side * 9.83f, farEdge, 70.75f, steel);
+                Guardrail(quay, new Vector3(side * railOffset, 0f, nearEdge), new Vector3(side * 7.84f, 0f, nearEdge), steel);
+                Guardrail(quay, new Vector3(side * railOffset, 0f, farEdge), new Vector3(side * 9.83f, 0f, farEdge), steel);
                 for (float z = 27.7f; z < 68.8f; z += 8.3f)
                 {
-                    Cylinder(quay, "Quay light pole", new Vector3(side * 9.03f, 2.22f, z), 0.105f, 4.44f, steel, Quaternion.identity);
+                    Cylinder(quay, "Quay light pole", new Vector3(side * 9.03f, 2.22f, z), 0.105f, 4.44f, steel, Quaternion.identity, solid: true);
                     RoundedBlock(quay, "Quay light", new Vector3(side * 8.78f, 4.39f, z),
                         new Vector3(0.73f, 0.12f, 0.36f), amber);
                     Lamp(quay, new Vector3(side * 8.7f, 4.22f, z), new Color(1f, 0.75f, 0.49f), 8.1f, 2.8f);
@@ -45,16 +48,17 @@ namespace DeliveryImpossible.Editor
             BuildPortOffice(dispatch, steel, amber, timber, concrete);
 
             Transform bridge = Child(quay, "Motorized bridge pivot");
-            bridge.localPosition = new Vector3(0f, 0f, 12.98f);
-            Block(bridge, "Bridge deck", new Vector3(0f, -0.18f, 5.13f), new Vector3(5.32f, 0.36f, 10.36f), concrete, true);
-            foreach (float x in new[] { -2.56f, 2.56f })
-                Block(bridge, "Bridge handrail", new Vector3(x, 0.45f, 5.05f), new Vector3(0.12f, 0.90f, 10.09f), steel, true);
-            for (float z = 0.51f; z < 10.17f; z += 0.69f)
+            bridge.localPosition = new Vector3(0f, 0f, nearEdge);
+            float span = farEdge - nearEdge;
+            Block(bridge, "Bridge deck", new Vector3(0f, -0.18f, span * 0.5f), new Vector3(5.32f, 0.36f, span), concrete, true);
+            foreach (float x in new[] { -railOffset, railOffset })
+                HarborRail(bridge, x, 0.10f, span - 0.10f, steel);
+            for (float z = 0.51f; z < span; z += 0.69f)
                 Block(bridge, "Anti-slip strip", new Vector3(0f, 0.014f, z), new Vector3(4.95f, 0.018f, 0.075f), amber);
             bridge.localRotation = Quaternion.Euler(-76f, 0f, 0f);
             foreach (float x in new[] { -2.95f, 2.95f })
             {
-                Cylinder(quay, "Bridge motor axis", new Vector3(x, 0.31f, 12.99f), 0.68f, 0.49f, steel, Quaternion.Euler(0, 0, 90));
+                Cylinder(quay, "Bridge motor axis", new Vector3(x, 0.31f, 12.99f), 0.68f, 0.49f, steel, Quaternion.Euler(0, 0, 90), solid: true);
                 CoursePost(quay, "МОСТ", new Vector3(x * 1.22f, 0f, 11.86f), amber, steel);
             }
 
@@ -83,7 +87,7 @@ namespace DeliveryImpossible.Editor
                     Volume(quay, "Bridge exit", new Vector3(0f, 1.26f, 24.65f), new Vector3(5.35f, 2.54f, 2.3f)),
                     Volume(quay, "Quay inspection", new Vector3(4.45f, 1.38f, 52.2f), new Vector3(5.8f, 2.8f, 2.75f))
                 },
-                MainZone = ZoneAt(quay, new Vector3(2.12f, 0, 63.7f), 5.6f)
+                MainZone = ZoneAt(quay, new Vector3(2.12f, 0, 62.9f), 5.6f)
             };
         }
 
@@ -111,9 +115,9 @@ namespace DeliveryImpossible.Editor
             {
                 float z = 5.1f + bay * 10.4f;
                 ImportedProp(bay % 2 == 0 ? "Hopper" : "Machine", false, hall,
-                    new Vector3(2.5f, 3.3f, 2.7f), new Vector3(-8.0f, 1.6f, z), 90f);
+                    new Vector3(2.5f, 3.3f, 2.7f), new Vector3(-8.0f, 1.65f, z), 90f, solid: true);
                 ImportedProp(bay % 2 == 0 ? "Robot" : "Machine", false, hall,
-                    new Vector3(2.5f, 3.3f, 2.7f), new Vector3(8.05f, 1.6f, z), -90f);
+                    new Vector3(2.5f, 3.3f, 2.7f), new Vector3(8.05f, 1.65f, z), -90f, solid: true);
             }
 
             Block(hall, "Continuous conveyor chassis", new Vector3(0f, 0.027f, 20.35f),
@@ -188,7 +192,7 @@ namespace DeliveryImpossible.Editor
                 Vector3 point = new Vector3(side * 8.15f, 0, z);
                 CargoStack(archive, point, panel, railing);
                 Block(archive, "Archive storage bay", point + new Vector3(0f, 1.61f, 1.8f),
-                    new Vector3(1.92f, 3.22f, 0.37f), panel);
+                    new Vector3(1.92f, 3.22f, 0.37f), panel, true);
                 CourseLabel(archive, $"СТЕЛЛАЖ {index + 1:00}", point + new Vector3(0f, 2.49f, 1.58f), 1.7f, brass, railing);
                 if (index == 2 && side < 0)
                     GalleryExhibit(archive, point + Vector3.forward * 3.1f, panel, floor, brass);
@@ -222,7 +226,8 @@ namespace DeliveryImpossible.Editor
             Partition(parent, brick, -10f, x - gap, 0f, 6.3f, z);
             Partition(parent, brick, x + gap, 10f, 0f, 6.3f, z);
             Partition(parent, brick, x - gap, x + gap, 3.14f, 6.3f, z);
-            ImportedProp("Scanner", false, parent, new Vector3(0.63f, 2.6f, 0.81f), new Vector3(x + gap + 0.45f, 1.26f, z - 0.53f));
+            ImportedProp("Scanner", false, parent, new Vector3(0.63f, 2.6f, 0.81f),
+                new Vector3(x + gap + 0.45f, 1.3f, z - 0.53f), solid: true);
             CourseLabel(parent, $"СКАНЕР {index:00}", new Vector3(x, 3.47f, z - 0.255f), 2.8f, brass, brick);
             Block(parent, "Scanner approaching stripe", new Vector3(x, 0.018f, z - 1.02f),
                 new Vector3(4.16f, 0.018f, 0.14f), brass);
@@ -252,11 +257,12 @@ namespace DeliveryImpossible.Editor
             {
                 float z = 6.8f + bay * 10.7f;
                 float x = bay % 2 == 0 ? -9.0f : 9.0f;
-                ImportedProp("PipeValve", false, cold, new Vector3(2.15f, 2.78f, 2.2f), new Vector3(x, 1.37f, z), bay % 2 * 180f);
+                ImportedProp("PipeValve", false, cold, new Vector3(2.15f, 2.78f, 2.2f),
+                    new Vector3(x, 1.39f, z), bay % 2 * 180f, solid: true);
                 RoundedBlock(cold, "Insulated pallet bin", new Vector3(-x, 0.70f, z + 2.54f),
-                    new Vector3(2.15f, 1.4f, 3.1f), panel);
+                    new Vector3(2.15f, 1.4f, 3.1f), panel, solid: true);
                 Block(cold, "Insulated pallet bin lid", new Vector3(-x, 1.44f, z + 2.54f),
-                    new Vector3(2.23f, 0.13f, 3.21f), baseMetal);
+                    new Vector3(2.23f, 0.13f, 3.21f), baseMetal, true);
             }
 
             Vector3[] bays =
@@ -288,13 +294,13 @@ namespace DeliveryImpossible.Editor
             foreach (float side in new[] { -1f, 1f })
             {
                 RoundedBlock(parent, "Cooling column", point + new Vector3(side * 2.25f, 1.52f, 0.95f),
-                    new Vector3(0.38f, 3.03f, 0.38f), frame);
+                    new Vector3(0.38f, 3.03f, 0.38f), frame, solid: true);
                 RoundedBlock(parent, "Cooling indicator", point + new Vector3(side * 2.25f, 1.51f, 0.734f),
                     new Vector3(0.13f, 2.34f, 0.075f), glow);
             }
 
             RoundedBlock(parent, "Chiller bank", point + new Vector3(0f, 3.05f, 0.95f),
-                new Vector3(4.92f, 0.38f, 0.89f), frame);
+                new Vector3(4.92f, 0.38f, 0.89f), frame, solid: true);
             CourseLabel(parent, $"ОХЛАЖДЕНИЕ {number:00}", point + new Vector3(0f, 3.05f, 0.48f), 3.26f, glow, frame);
             Lamp(parent, point + new Vector3(0f, 2.88f, 0.34f), new Color(0.48f, 0.91f, 1f), 5.4f, 3.8f);
             return Volume(parent, "Refrigerated bay", point + Vector3.up * 1.42f, new Vector3(4.33f, 2.87f, 4.14f));
@@ -307,65 +313,49 @@ namespace DeliveryImpossible.Editor
             Material wall = QuaySurface("Station Sheet Metal", "SteelPanels", "#A0AEB3", 2.53f);
             Material brick = QuaySurface("Pump House Brick", "QuayBrick", "#96928C", 3.2f);
             Material dark = Material("Pump House Steel", "#343F4D");
+            Material deck = QuaySurface("Service Bridge Deck", "SteelPanels", "#657D84", 1.7f);
             Material amber = Material("Hydro Warning Light", "#FCC075", emissive: true);
             Material light = Material("Pump Panel Mint", "#8DD2C0", emissive: true);
             Block(station, "Tidal basin", new Vector3(0f, -1.47f, 48f), new Vector3(570f, 0.08f, 630f), OpenWater());
             BuildCoastalVista(station, powerStation: true);
-            Floor(station, floor, 15f, -3f, 17.2f);
-            Floor(station, floor, 20f, 26.4f, 92.7f);
-            Block(station, "Service footbridge floor", new Vector3(4.1f, -0.155f, 21.81f),
-                new Vector3(4.25f, 0.31f, 9.57f), dark, true);
-            for (float z = 17.7f; z < 26.4f; z += 2.35f)
-                ImportedProp("Catwalk", false, station, new Vector3(3.8f, 0.93f, 2.32f), new Vector3(4.1f, -0.11f, z));
-            HarborRail(station, 2.085f, 17.23f, 26.45f, dark);
-            HarborRail(station, 6.11f, 17.23f, 26.45f, dark);
-            foreach (float x in new[] { -7.32f, 7.32f }) HarborRail(station, x, -2.9f, 16.85f, dark);
-            Block(station, "Basin barrier", new Vector3(-2.8f, 0.64f, 16.91f), new Vector3(9.3f, 1.28f, 0.135f), dark, true);
+            const float nearEdge = 17.2f;
+            const float farEdge = 26.4f;
+            const float leftRail = 2.085f;
+            const float rightRail = 6.11f;
+            Floor(station, floor, 15f, -3f, nearEdge);
+            Floor(station, floor, 20f, farEdge, 76.05f);
+            Block(station, "Service footbridge floor", new Vector3(4.1f, -0.15f, (nearEdge + farEdge) * 0.5f),
+                new Vector3(4.25f, 0.30f, farEdge - nearEdge), deck, true);
+            HarborRail(station, leftRail, nearEdge, farEdge, dark);
+            HarborRail(station, rightRail, nearEdge, farEdge, dark);
+            foreach (float x in new[] { -7.32f, 7.32f }) HarborRail(station, x, -2.85f, nearEdge, dark);
+            Guardrail(station, new Vector3(-7.32f, 0f, -2.85f), new Vector3(7.32f, 0f, -2.85f), dark);
+            Guardrail(station, new Vector3(-7.32f, 0f, nearEdge), new Vector3(leftRail, 0f, nearEdge), dark);
+            Guardrail(station, new Vector3(rightRail, 0f, nearEdge), new Vector3(7.32f, 0f, nearEdge), dark);
+            Guardrail(station, new Vector3(-9.72f, 0f, farEdge), new Vector3(leftRail, 0f, farEdge), dark);
+            Guardrail(station, new Vector3(rightRail, 0f, farEdge), new Vector3(9.72f, 0f, farEdge), dark);
             CoursePost(station, "СЕРВИСНЫЙ МОСТ", new Vector3(5.82f, 0, 14.1f), amber, dark);
-            foreach (float x in new[] { -9.72f, 9.72f }) HarborRail(station, x, 26.7f, 92.45f, dark);
+            foreach (float x in new[] { -9.72f, 9.72f }) HarborRail(station, x, farEdge, 76f, dark);
 
-            for (int index = 0; index < 5; index++)
-            {
-                float z = 35.2f + index * 10.7f;
-                foreach (float side in new[] { -1f, 1f })
-                {
-                    Vector3 prop = new Vector3(side * 6.95f, 0, z);
-                    RoundedBlock(station, "Turbine mount", prop + Vector3.up * 0.42f, new Vector3(2.7f, 0.84f, 3.2f), brick);
-                    ImportedProp(index % 2 == 0 ? "Hopper" : "PipeValve", false, station, new Vector3(2.4f, 3.5f, 2.68f),
-                        prop + Vector3.up * 2.32f, side * 90f);
-                    Block(station, "Turbine support", prop + Vector3.up * 2.9f, new Vector3(0.35f, 5.8f, 0.35f), dark);
-                }
-
-                Block(station, "Gantry span", new Vector3(0f, 5.52f, z), new Vector3(14.2f, 0.31f, 0.45f), dark);
-                Lamp(station, new Vector3(0f, 5.21f, z), new Color(1f, 0.79f, 0.57f), 12.0f, 5.3f);
-            }
-
-            Block(station, "Pump hall roof", new Vector3(0f, 6.22f, 76.0f), new Vector3(20.3f, 0.46f, 33.1f), wall);
-            Block(station, "Plant back wall", new Vector3(0f, 3.05f, 92.0f), new Vector3(20f, 6.11f, 0.4f), brick, true);
-            CheckArch(station, new Vector3(-2.3f, 0f, 48.2f), 6.12f, dark, light, "НАСОСНЫЙ УЗЕЛ");
-            CheckArch(station, new Vector3(1.2f, 0f, 68.45f), 6.33f, dark, light, "ЭНЕРГОСЕКЦИЯ");
-            CourseLabel(station, "ПРИЛИВНАЯ ПОДСТАНЦИЯ", new Vector3(0, 3.75f, 90.1f), 6.2f, light, dark);
-            RoundedBlock(station, "Substation control cabinet", new Vector3(0f, 1.06f, 89.8f),
-                new Vector3(4.1f, 2.12f, 1.95f), wall);
-            DeliveryZone main = ZoneAt(station, new Vector3(-3.25f, 0, 84.2f), 4.7f, 90f);
-            DeliveryZone backup = ZoneAt(station, new Vector3(3.25f, 0, 84.2f), 4.7f, -90f);
+            DeliveryCheckpoint[] checks = BuildSubstationStages(station, deck, wall, brick, dark, amber, light);
+            DeliveryZone main = ZoneAt(station, new Vector3(-4.2f, SubstationDeckHeight, 92.4f), 4.7f, 90f);
+            DeliveryZone backup = ZoneAt(station, new Vector3(4.2f, SubstationDeckHeight, 92.4f), 4.7f, -90f);
             Arrow(main.transform, new Vector3(0, 0.047f, 0), light, 1.55f);
             Arrow(backup.transform, new Vector3(0, 0.047f, 0), amber, 1.55f);
-            RouteStuds(station, light, new Vector2(4.1f, 12f), new Vector2(4.1f, 29f), new Vector2(-2.3f, 45f),
-                new Vector2(-2.3f, 50.5f), new Vector2(1.2f, 66f), new Vector2(-3.25f, 82f));
+            RouteStuds(station, light, new Vector2(0f, 3.8f), new Vector2(0f, 8.1f));
+            RouteStuds(station, light, new Vector2(1.0f, 11.9f), new Vector2(4.1f, 14.9f),
+                new Vector2(4.1f, 29f), new Vector2(-2.95f, 38.05f));
+            RouteStuds(station, light, new Vector2(-2.95f, 42.55f), new Vector2(2.95f, 51.95f));
+            RouteStuds(station, light, new Vector2(2.95f, 56.45f), new Vector2(0f, 60.3f));
+            RouteStuds(station, light, SubstationDeckHeight, new Vector2(0f, 76.25f), new Vector2(0f, 79.4f));
             return new CampaignLevel
             {
-                Name = "ПРИЛИВНАЯ ПОДСТАНЦИЯ", Hint = "Пройдите по правому мостику через насосный узел к панели питания.",
+                Name = "ПРИЛИВНАЯ ПОДСТАНЦИЯ", Hint = "Запустите подстанцию. Контактная площадка перед мостом.",
                 Course = Course(station, DeliveryMechanic.Docking), Spawn = SpawnAt(station, Vector3.zero),
                 MainCargo = PutCargo(station, module, new Vector3(-1.28f, 0.52f, 3.15f), false, light),
                 BonusCargo = PutCargo(station, MakeSpecialCargo("OrbitalFuelCell"), new Vector3(2.78f, 0.61f, 2.84f), true, amber),
                 MainLabel = "Модуль питания", BonusLabel = "Резервный аккумулятор",
-                Checkpoints = new[]
-                {
-                    Volume(station, "Service bridge exit", new Vector3(4.1f, 1.35f, 28.21f), new Vector3(4.7f, 2.75f, 2.38f)),
-                    Volume(station, "Pump node checkpoint", new Vector3(-2.3f, 1.44f, 48.2f), new Vector3(6.1f, 2.9f, 2.51f)),
-                    Volume(station, "Power hall entrance", new Vector3(1.2f, 1.44f, 68.45f), new Vector3(6.5f, 2.9f, 2.6f))
-                },
+                Checkpoints = checks,
                 MainZone = main, BonusZone = backup
             };
         }
@@ -419,8 +409,8 @@ namespace DeliveryImpossible.Editor
         {
             foreach (float side in new[] { -1f, 1f })
                 Block(parent, "Route arch support", point + new Vector3(side * width * 0.5f, 1.61f, 0f),
-                    new Vector3(0.26f, 3.22f, 0.28f), frame);
-            Block(parent, "Route arch beam", point + new Vector3(0, 3.18f, 0), new Vector3(width + 0.27f, 0.35f, 0.29f), frame);
+                    new Vector3(0.26f, 3.22f, 0.28f), frame, true);
+            Block(parent, "Route arch beam", point + new Vector3(0, 3.18f, 0), new Vector3(width + 0.27f, 0.35f, 0.29f), frame, true);
             CourseLabel(parent, label, point + new Vector3(0, 3.20f, -0.17f), width * 0.64f, paint, frame);
         }
     }

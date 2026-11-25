@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DeliveryImpossible.Networking;
 using DeliveryImpossible.Orders;
 using Mirror;
@@ -14,8 +15,19 @@ namespace DeliveryImpossible.Interaction
         {
             public NetworkGrabber Holder;
             public Vector3 LocalAnchor;
-            public Vector3 TargetPosition;
+            public float Lowering;
+            public float SmoothedLowering;
             public Quaternion TargetRotation;
+            public Vector3 LastCarrierPosition;
+            public Vector3 CarrierVelocity;
+        }
+
+        public struct CargoPose
+        {
+            public Vector3 Position;
+            public Quaternion Rotation;
+            public double Time;
+            public uint Reset;
         }
 
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
@@ -38,46 +50,46 @@ namespace DeliveryImpossible.Interaction
         [SerializeField] private Color highlightColor = new Color(1f, 0.72f, 0.12f, 1f);
         [SerializeField] private Renderer[] highlightedRenderers;
 
-        [Header("Network Smoothing")]
-        [SerializeField, Min(0f)] private float clientPositionLerp = 22f;
-        [SerializeField, Min(0f)] private float clientRotationLerp = 18f;
-
         [SyncVar] private byte holderCount;
         [SyncVar] private uint firstHolderNetId;
         [SyncVar] private uint secondHolderNetId;
 
-        [SyncVar(hook = nameof(OnNetworkPositionChanged))]
-        private Vector3 networkPosition;
-
-        [SyncVar(hook = nameof(OnNetworkRotationChanged))]
-        private Quaternion networkRotation = Quaternion.identity;
+        [SyncVar(hook = nameof(OnNetworkPoseChanged))]
+        private CargoPose networkPose;
 
         private Rigidbody body;
         private readonly HolderState[] serverHolders = new HolderState[2];
-        private Vector3 clientTargetPosition;
-        private Quaternion clientTargetRotation;
+        private readonly SortedList<double, TransformSnapshot> clientSnapshots = new();
+        private RigidbodyInterpolation originalInterpolation;
         private MaterialPropertyBlock highlightBlock;
         private bool originalIsKinematic;
         private bool highlighted;
         private Quaternion teamCarryRotation;
-        private Collider[] bonusColliders;
+        private Collider[] cargoColliders;
         private bool? bonusVisible;
 
         public bool IsHeld => holderCount > 0;
-        public bool IsFullyHeld => holderCount >= (NetworkSessionState.Active?.IsSolo == true ? 1 : maxHolders);
+        private bool SingleCarrier => NetworkSessionState.Active?.IsSolo == true ||
+                                      NetworkDeliveryOrder.Active?.CanCarrySeparately(this) == true;
+        private int HolderCapacity => SingleCarrier ? 1 : maxHolders;
+        public bool IsFullyHeld => holderCount >= HolderCapacity;
         public bool RequiresTeam => RequiredHolders > 1;
         public bool NeedsMoreHolders => IsHeld && holderCount < RequiredHolders;
         public bool CanPickUp => !IsFullyHeld && (NetworkDeliveryOrder.Active?.AllowsPickup(this) ?? true);
         public int HolderCount => holderCount;
-        public int RequiredHolders => NetworkSessionState.Active?.IsSolo == true ? 1 : requiredHolders;
+        public int RequiredHolders => SingleCarrier ? 1 : requiredHolders;
         public uint FirstHolderNetId => firstHolderNetId;
         public uint SecondHolderNetId => secondHolderNetId;
-        public Vector3 WorldCenter => body != null ? body.worldCenterOfMass : transform.position;
+        public Vector3 WorldCenter => body == null ? transform.position :
+            isServer ? body.worldCenterOfMass : transform.TransformPoint(body.centerOfMass);
+        internal Collider[] CargoColliders => cargoColliders;
 
         private void Awake()
         {
             body = GetComponent<Rigidbody>();
+            cargoColliders = GetComponentsInChildren<Collider>(true);
             originalIsKinematic = body.isKinematic;
+            originalInterpolation = body.interpolation;
 
             // Scene objects exist before Host/Client is started. Keep cargo
             // frozen until the server becomes authoritative so each peer
@@ -91,7 +103,6 @@ namespace DeliveryImpossible.Interaction
 
             if (campaignBonusCargo)
             {
-                bonusColliders = GetComponentsInChildren<Collider>();
                 UpdateBonusVisibility();
             }
         }
@@ -100,28 +111,34 @@ namespace DeliveryImpossible.Interaction
         {
             base.OnStartServer();
             body.isKinematic = originalIsKinematic;
+            body.interpolation = originalInterpolation;
             if (campaignBonusCargo)
             {
                 bonusVisible = null;
                 UpdateBonusVisibility();
             }
             teamCarryRotation = body.rotation;
-            networkPosition = body.position;
-            networkRotation = body.rotation;
+            PublishPose(reset: true);
         }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
-            clientTargetPosition = networkPosition;
-            clientTargetRotation = networkRotation;
-
             if (!isServer)
             {
                 body.isKinematic = true;
-                body.position = networkPosition;
-                body.rotation = networkRotation;
+                body.interpolation = RigidbodyInterpolation.None;
+                ApplyClientReset(networkPose);
             }
+        }
+
+        private void Update()
+        {
+            if (!isClient || isServer || clientSnapshots.Count == 0) return;
+            SnapshotInterpolation.StepInterpolation(clientSnapshots, NetworkTime.unscaledTime,
+                out TransformSnapshot from, out TransformSnapshot to, out double blend);
+            TransformSnapshot pose = TransformSnapshot.Interpolate(from, to, blend);
+            transform.SetPositionAndRotation(pose.position, pose.rotation);
         }
 
         private void LateUpdate()
@@ -135,32 +152,15 @@ namespace DeliveryImpossible.Interaction
             if (bonusVisible == visible) return;
             bonusVisible = visible;
             foreach (Renderer item in highlightedRenderers) item.enabled = visible;
-            foreach (Collider item in bonusColliders) item.enabled = visible;
+            foreach (Collider item in cargoColliders) item.enabled = visible;
             body.isKinematic = !isServer || !visible || originalIsKinematic;
         }
 
         private void FixedUpdate()
         {
-            if (body == null)
-            {
-                return;
-            }
-
-            if (isServer)
-            {
-                UpdateServerPhysics();
-                networkPosition = body.position;
-                networkRotation = body.rotation;
-                return;
-            }
-
-            if (isClient)
-            {
-                float positionT = 1f - Mathf.Exp(-clientPositionLerp * Time.fixedDeltaTime);
-                float rotationT = 1f - Mathf.Exp(-clientRotationLerp * Time.fixedDeltaTime);
-                body.MovePosition(Vector3.Lerp(body.position, clientTargetPosition, positionT));
-                body.MoveRotation(Quaternion.Slerp(body.rotation, clientTargetRotation, rotationT));
-            }
+            if (!isServer || body == null) return;
+            UpdateServerPhysics();
+            PublishPose(reset: false);
         }
 
         [Server]
@@ -203,10 +203,16 @@ namespace DeliveryImpossible.Interaction
                     continue;
                 }
 
-                Vector3 anchorPosition = transform.TransformPoint(state.LocalAnchor);
-                Vector3 positionError = state.TargetPosition - anchorPosition;
+                Vector3 anchorPosition = body.position + body.rotation * Vector3.Scale(state.LocalAnchor, transform.lossyScale);
+                state.SmoothedLowering = Mathf.MoveTowards(state.SmoothedLowering, state.Lowering, 8f * Time.fixedDeltaTime);
+                Vector3 positionError = state.Holder.CarryCenter(state.SmoothedLowering) - anchorPosition;
                 Vector3 pointVelocity = body.GetPointVelocity(anchorPosition);
-                Vector3 acceleration = positionError * positionSpring - pointVelocity * positionDamping;
+                Vector3 carrierPosition = state.Holder.transform.position;
+                Vector3 carrierVelocity = Vector3.ClampMagnitude(
+                    (carrierPosition - state.LastCarrierPosition) / Time.fixedDeltaTime, 7f);
+                state.LastCarrierPosition = carrierPosition;
+                state.CarrierVelocity = Vector3.Lerp(state.CarrierVelocity, carrierVelocity, 0.45f);
+                Vector3 acceleration = positionError * positionSpring + (state.CarrierVelocity - pointVelocity) * positionDamping;
                 body.AddForceAtPosition(
                     Vector3.ClampMagnitude(acceleration, maxAcceleration * controlStrength),
                     anchorPosition,
@@ -223,7 +229,7 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
-            if (requiredHolders > 1)
+            if (RequiresTeam)
             {
                 targetRotation = teamCarryRotation;
             }
@@ -248,22 +254,59 @@ namespace DeliveryImpossible.Interaction
             }
         }
 
-        private void OnNetworkPositionChanged(Vector3 _, Vector3 current)
+        private void PublishPose(bool reset)
         {
-            clientTargetPosition = current;
+            Vector3 position = body.position;
+            Quaternion rotation = body.rotation;
+            if (!reset && (position - networkPose.Position).sqrMagnitude < 0.000001f &&
+                Mathf.Abs(Quaternion.Dot(rotation, networkPose.Rotation)) > 0.9999999f)
+                return;
+            networkPose = new CargoPose
+            {
+                Position = position,
+                Rotation = rotation,
+                Time = NetworkTime.localTime,
+                Reset = networkPose.Reset + (reset ? 1u : 0u)
+            };
         }
 
-        private void OnNetworkRotationChanged(Quaternion _, Quaternion current)
+        private void OnNetworkPoseChanged(CargoPose previous, CargoPose current)
         {
-            clientTargetRotation = current;
+            if (isServer || !isClient) return;
+            if (previous.Reset != current.Reset || clientSnapshots.Count == 0)
+            {
+                ApplyClientReset(current);
+                return;
+            }
+
+            double interval = NetworkServer.sendInterval;
+            if (current.Time - previous.Time > 3d * interval)
+            {
+                // Seed the end of a stationary period so movement doesn't interpolate across the whole pause.
+                AddSnapshot(previous, current.Time - interval);
+            }
+            AddSnapshot(current, current.Time);
+        }
+
+        private void ApplyClientReset(CargoPose pose)
+        {
+            clientSnapshots.Clear();
+            body.position = pose.Position;
+            body.rotation = pose.Rotation;
+            AddSnapshot(pose, pose.Time);
+        }
+
+        private void AddSnapshot(CargoPose pose, double time)
+        {
+            SnapshotInterpolation.InsertIfNotExists(clientSnapshots, 32,
+                new TransformSnapshot(time, NetworkTime.localTime, pose.Position, pose.Rotation, Vector3.one));
         }
 
         [Server]
         public bool ServerBeginGrab(
             NetworkGrabber holder,
             Vector3 worldGrabPoint,
-            Vector3 desiredPosition,
-            Quaternion desiredRotation)
+            float lowering)
         {
             if (holder == null ||
                 body == null ||
@@ -274,27 +317,53 @@ namespace DeliveryImpossible.Interaction
             }
 
             int freeIndex = FindFreeHolderIndex();
-            if (freeIndex < 0 || freeIndex >= maxHolders)
+            if (freeIndex < 0 || freeIndex >= HolderCapacity)
             {
                 return false;
+            }
+
+            bool joiningSharedLift = IsHeld && NetworkDeliveryOrder.Active?.AllowsSharedLift(this) == true;
+            if (joiningSharedLift)
+            {
+                HolderState current = serverHolders[0] ?? serverHolders[1];
+                current.LocalAnchor = NearestCarryAnchor(current.Holder.transform.position + Vector3.up * 1.1f);
             }
 
             serverHolders[freeIndex] = new HolderState
             {
                 Holder = holder,
-                LocalAnchor = RequiresTeam ? transform.InverseTransformPoint(worldGrabPoint) : body.centerOfMass,
-                TargetPosition = desiredPosition,
-                TargetRotation = desiredRotation
+                LocalAnchor = RequiresTeam || joiningSharedLift
+                    ? transform.InverseTransformPoint(worldGrabPoint) : body.centerOfMass,
+                Lowering = lowering,
+                SmoothedLowering = lowering,
+                TargetRotation = Quaternion.Euler(0f, body.rotation.eulerAngles.y, 0f),
+                LastCarrierPosition = holder.transform.position
             };
             RefreshHolderSyncState();
             body.WakeUp();
             return true;
         }
 
+        private Vector3 NearestCarryAnchor(Vector3 position)
+        {
+            Vector3 closest = WorldCenter;
+            float nearest = float.PositiveInfinity;
+            foreach (Collider candidate in cargoColliders)
+            {
+                if (!candidate.enabled || candidate.isTrigger) continue;
+                Vector3 point = candidate.ClosestPoint(position);
+                float distance = (point - position).sqrMagnitude;
+                if (distance >= nearest) continue;
+                closest = point;
+                nearest = distance;
+            }
+            return transform.InverseTransformPoint(closest);
+        }
+
         [Server]
         public void ServerSetTargetPose(
             NetworkGrabber holder,
-            Vector3 desiredPosition,
+            float lowering,
             Quaternion desiredRotation)
         {
             int index = FindHolderIndex(holder);
@@ -303,7 +372,7 @@ namespace DeliveryImpossible.Interaction
                 return;
             }
 
-            serverHolders[index].TargetPosition = desiredPosition;
+            serverHolders[index].Lowering = lowering;
             serverHolders[index].TargetRotation = desiredRotation;
         }
 
@@ -317,6 +386,8 @@ namespace DeliveryImpossible.Interaction
             }
 
             serverHolders[index] = null;
+            HolderState remaining = serverHolders[0] ?? serverHolders[1];
+            if (remaining != null && !RequiresTeam) remaining.LocalAnchor = body.centerOfMass;
             RefreshHolderSyncState();
             body?.WakeUp();
         }
@@ -340,10 +411,7 @@ namespace DeliveryImpossible.Interaction
                 {
                     holder.ServerReleaseTarget(this);
                 }
-                else
-                {
-                    serverHolders[index] = null;
-                }
+                serverHolders[index] = null;
             }
 
             RefreshHolderSyncState();
@@ -356,8 +424,7 @@ namespace DeliveryImpossible.Interaction
                 body.angularVelocity = Vector3.zero;
                 body.WakeUp();
             }
-            networkPosition = position;
-            networkRotation = rotation;
+            PublishPose(reset: true);
         }
 
         [Server]
@@ -489,6 +556,7 @@ namespace DeliveryImpossible.Interaction
 
         public override void OnStopClient()
         {
+            clientSnapshots.Clear();
             if (!isServer && body != null)
             {
                 body.isKinematic = true;

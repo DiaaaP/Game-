@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Linq;
+using DeliveryImpossible.Interaction;
 using DeliveryImpossible.Orders;
 using Mirror;
 using UnityEngine;
@@ -65,10 +66,11 @@ namespace DeliveryImpossible.Networking
                 NetworkDeliveryOrder order = NetworkDeliveryOrder.Active;
                 if (courier != null && order != null && NetworkClient.isConnected)
                 {
+                    var view = order.ViewForCourier(courier, courier.GetComponent<NetworkGrabber>().HeldObject);
                     Debug.Log($"[NetworkDiagnostics] courier={courier.PlayerNumber} " +
                         $"position={courier.transform.position:F3} level={order.CurrentLevelNumber}/{order.TotalLevels} " +
-                        $"order={order.CurrentOrderNumber}/{order.TotalOrders} " +
-                        $"state={order.State} gates={order.CheckpointsPassed}/{order.CheckpointCount}");
+                        $"delivered={order.CompletedOrders}/{order.TotalOrders} onLevel={order.AcceptedThisLevel}/{order.LevelCargoCount} " +
+                        $"cargo={view.CurrentOrderName} state={view.State} gates={view.CheckpointsPassed}/{view.CheckpointCount}");
                 }
 
                 yield return wait;

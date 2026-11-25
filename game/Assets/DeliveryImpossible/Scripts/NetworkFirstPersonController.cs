@@ -38,9 +38,13 @@ namespace DeliveryImpossible.Player
         private float cameraPitch;
         private bool targetCrouching;
         private bool cursorCaptured;
+        private bool localWalking;
 
         [SyncVar(hook = nameof(OnNetworkCrouchingChanged))]
         private bool networkCrouching;
+        [SyncVar] private bool networkWalking;
+
+        public bool IsWalking => isLocalPlayer ? localWalking : networkWalking;
 
         private void Awake()
         {
@@ -79,6 +83,7 @@ namespace DeliveryImpossible.Player
             GetComponent<NetworkTransformBase>().ServerTeleport(position, rotation);
             characterController.enabled = true;
             networkCrouching = false;
+            networkWalking = false;
             ResetLevelMovement();
             if (!isLocalPlayer)
             {
@@ -100,6 +105,7 @@ namespace DeliveryImpossible.Player
             verticalVelocity = 0f;
             cameraPitch = 0f;
             targetCrouching = false;
+            localWalking = false;
             if (cameraRoot != null)
             {
                 cameraRoot.localRotation = Quaternion.identity;
@@ -125,6 +131,7 @@ namespace DeliveryImpossible.Player
 
             if (NetworkLobbyUi.BlocksGameplay)
             {
+                UpdateWalking(false);
                 ReleaseCursor();
                 return;
             }
@@ -140,6 +147,7 @@ namespace DeliveryImpossible.Player
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
             {
+                UpdateWalking(false);
                 return;
             }
 
@@ -167,6 +175,21 @@ namespace DeliveryImpossible.Player
             verticalVelocity += gravity * Time.deltaTime;
             horizontalVelocity.y = verticalVelocity;
             characterController.Move(horizontalVelocity * Time.deltaTime);
+            Vector3 velocity = characterController.velocity;
+            UpdateWalking(input.sqrMagnitude > 0f && velocity.x * velocity.x + velocity.z * velocity.z > 0.04f);
+        }
+
+        private void UpdateWalking(bool walking)
+        {
+            if (localWalking == walking) return;
+            localWalking = walking;
+            CmdSetWalking(walking);
+        }
+
+        [Command]
+        private void CmdSetWalking(bool walking)
+        {
+            networkWalking = walking;
         }
 
         private void HandleLook()
@@ -235,10 +258,13 @@ namespace DeliveryImpossible.Player
                 targetHeight,
                 crouchTransitionSpeed * Time.deltaTime);
 
-            characterController.height = newHeight;
-            Vector3 center = characterController.center;
-            center.y = newHeight * 0.5f;
-            characterController.center = center;
+            if (!Mathf.Approximately(characterController.height, newHeight))
+            {
+                characterController.height = newHeight;
+                Vector3 center = characterController.center;
+                center.y = newHeight * 0.5f;
+                characterController.center = center;
+            }
 
             if (cameraRoot != null)
             {

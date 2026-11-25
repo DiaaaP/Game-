@@ -1,9 +1,11 @@
+using DeliveryImpossible.Interaction;
 using DeliveryImpossible.Networking;
 using DeliveryImpossible.Orders;
 using Mirror;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using LobbyPlayer = DeliveryImpossible.Networking.NetworkLobbyPlayer;
 
 namespace DeliveryImpossible.UI
 {
@@ -51,10 +53,12 @@ namespace DeliveryImpossible.UI
         [SerializeField] private AudioClip deliveryAccepted;
         [SerializeField] private AudioClip cargoBroken;
         private DeliveryOrderState previousState;
+        private NetworkGrabber grabber;
 
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
+            grabber = GetComponent<NetworkGrabber>();
             SetVisible(false);
         }
 
@@ -67,7 +71,9 @@ namespace DeliveryImpossible.UI
 
             bool sessionStarted = NetworkSessionState.Active != null &&
                                   NetworkSessionState.Active.SessionStarted;
-            NetworkDeliveryOrder order = sessionStarted ? NetworkDeliveryOrder.Active : null;
+            NetworkDeliveryOrder.CargoView order = sessionStarted
+                ? NetworkDeliveryOrder.Active?.ViewForCourier(LobbyPlayer.LocalPlayer, grabber.HeldObject) ?? default
+                : default;
             SetVisible(sessionStarted && !NetworkLobbyUi.BlocksGameplay);
             UpdateAudio(sessionStarted, order);
             if (sessionStarted)
@@ -78,10 +84,10 @@ namespace DeliveryImpossible.UI
             }
         }
 
-        private void UpdateWaypoint(NetworkDeliveryOrder order)
+        private void UpdateWaypoint(NetworkDeliveryOrder.CargoView order)
         {
             if (waypoint == null || waypointCamera == null) return;
-            if (order == null || NetworkLobbyUi.BlocksGameplay ||
+            if (!order.IsValid || NetworkLobbyUi.BlocksGameplay ||
                 !order.TryGetWaypoint(transform.position, out Vector3 marker, out string caption))
             {
                 waypoint.gameObject.SetActive(false);
@@ -108,10 +114,10 @@ namespace DeliveryImpossible.UI
             SetText(waypointText, $"{arrow}{caption}  ·  {Mathf.CeilToInt(Vector3.Distance(transform.position, marker))} м");
         }
 
-        private void UpdateMeter(NetworkDeliveryOrder order)
+        private void UpdateMeter(NetworkDeliveryOrder.CargoView order)
         {
             if (meterPanel == null) return;
-            if (order == null || NetworkLobbyUi.BlocksGameplay)
+            if (!order.IsValid || NetworkLobbyUi.BlocksGameplay)
             {
                 meterPanel.SetActive(false);
                 return;
@@ -169,7 +175,7 @@ namespace DeliveryImpossible.UI
             meterFill.color = color;
         }
 
-        private void UpdateAudio(bool sessionStarted, NetworkDeliveryOrder order)
+        private void UpdateAudio(bool sessionStarted, NetworkDeliveryOrder.CargoView order)
         {
             if (warehouseAmbience == null) return;
             if (!sessionStarted)
@@ -180,7 +186,7 @@ namespace DeliveryImpossible.UI
             }
 
             if (!warehouseAmbience.isPlaying) warehouseAmbience.Play();
-            if (order == null || order.State == previousState) return;
+            if (!order.IsValid || order.State == previousState) return;
             previousState = order.State;
             if (previousState == DeliveryOrderState.Completed && deliveryAccepted != null)
                 warehouseAmbience.PlayOneShot(deliveryAccepted);
@@ -188,14 +194,14 @@ namespace DeliveryImpossible.UI
                 warehouseAmbience.PlayOneShot(cargoBroken);
         }
 
-        private void UpdateOrderPanel(NetworkDeliveryOrder order)
+        private void UpdateOrderPanel(NetworkDeliveryOrder.CargoView order)
         {
             if (objectiveText == null)
             {
                 return;
             }
 
-            if (order == null)
+            if (!order.IsValid)
             {
                 objectiveText.text = "ОЖИДАНИЕ ЗАКАЗА";
                 SetText(objectiveHintText, "Подключение к диспетчерской...");
@@ -218,7 +224,7 @@ namespace DeliveryImpossible.UI
                 _ => order.CurrentOrderRequiresTeam ? "ТЯЖЁЛОЕ" : "ЗАКАЗ"
             };
             string levelName = string.IsNullOrEmpty(order.CurrentLevelName) ? order.CurrentOrderName : order.CurrentLevelName;
-            string cargoCounter = order.IncludesBonusCargo ? $"  ·  {order.CargoNumberInLevel}/2" : "";
+            string cargoCounter = order.LevelCargoCount > 1 ? $"  ·  {order.AcceptedThisLevel}/{order.LevelCargoCount}" : "";
             SetText(
                 orderTitleText,
                 $"{order.CurrentLevelNumber}/{order.TotalLevels}  ·  {levelName.ToUpperInvariant()}{cargoCounter}");
@@ -270,6 +276,18 @@ namespace DeliveryImpossible.UI
                             ? $"Дождитесь окна у сканера {order.CheckpointsPassed + 1}"
                             : "Пройдите через арку с грузом",
                         DeliveryMechanic.ColdChain => order.IsCooling ? "Охладите груз" : "Найдите охлаждение",
+                        DeliveryMechanic.Docking when order.IsSubstation =>
+                            order.CheckpointsPassed switch
+                            {
+                                TidalSubstation.Charger when order.ChargeNormalized > 0f => "Подключение груза",
+                                TidalSubstation.Charger => "Подайте питание на мост",
+                                _ when !order.StationGateReady => "Дождитесь открытия шлюза",
+                                _ when order.BeforeStationBridge => "Перейдите правый мост",
+                                _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) =>
+                                    order.StationSteamActive ? "Переждите выброс пара" : "Пройдите паровой канал",
+                                _ when order.StationTeamLift && order.ActiveCargo.HolderCount < 2 => "Поднимите модуль вдвоём",
+                                _ => "Несите груз на верхнюю площадку"
+                            },
                         DeliveryMechanic.Docking => "Доставьте модуль на подстанцию",
                         _ => $"ПРОЙДИТЕ ВОРОТА {order.CheckpointsPassed + 1}/{order.CheckpointCount}"
                     };
@@ -296,6 +314,30 @@ namespace DeliveryImpossible.UI
                             ? "Красные лучи повредят груз. До выключения остаётся время на панели."
                             : "Перенесите груз за арку, пока лучи погашены.";
                     }
+                    else if (order.IsSubstation)
+                    {
+                        routeHint = order.CheckpointsPassed switch
+                        {
+                            TidalSubstation.Charger => "Поставьте груз на контакты с E и дождитесь зелёного сигнала.",
+                            _ when !order.StationGateReady => "Заберите груз. Шлюз у правого моста открывается.",
+                            _ when order.BeforeStationBridge => "Следуйте по меткам к шлюзу и через мост.",
+                            _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) =>
+                                order.StationSteamActive ? "Пар толкает груз. Укрытие находится перед каналом." :
+                                    "Пронесите груз под зелёным сигналом. За каналом сохранится прогресс.",
+                            _ when order.StationTeamLift =>
+                                "Поднимитесь по пандусу. Возьмитесь с двух сторон и вместе войдите в разметку.",
+                            _ => "Поднимитесь по пандусу и пронесите груз через разметку."
+                        };
+                        cargoType = order.CheckpointsPassed switch
+                        {
+                            TidalSubstation.Charger => $"ЗАРЯД {Mathf.RoundToInt(order.ChargeNormalized * 100f)}%",
+                            _ when TidalSubstation.IsSteamCheck(order.CheckpointsPassed) && order.StationGateReady &&
+                                   !order.BeforeStationBridge =>
+                                order.StationSteamActive ? $"ПАР {order.StationSteamSeconds} С" : $"ПРОХОД {order.StationSteamSeconds} С",
+                            _ when order.StationTeamLift => $"ПОДЪЁМ {order.ActiveCargo.HolderCount}/2",
+                            _ => ""
+                        };
+                    }
                     else if (order.CurrentOrderRequiresTeam)
                     {
                         routeHint += "Несите груз вместе.";
@@ -311,9 +353,11 @@ namespace DeliveryImpossible.UI
 
                 case DeliveryOrderState.Completed:
                     objectiveText.text = "ЗАКАЗ ВЫПОЛНЕН";
-                    SetText(
-                        objectiveHintText,
-                        order.CurrentOrderIsFragile
+                    SetText(objectiveHintText, order.StationPartnerNeedsHelp
+                        ? "Резерв включён. Помогите напарнику поднять модуль на верхней площадке."
+                        : order.AcceptedThisLevel < order.LevelCargoCount
+                        ? "Доставьте второй груз, чтобы открыть следующий участок."
+                        : order.CurrentOrderIsFragile
                             ? $"ОЦЕНКА: {order.LastGrade} · ЦЕЛОСТНОСТЬ: {Mathf.RoundToInt(order.CurrentIntegrity * 100f)}% · ДАЛЬШЕ: {order.TransitionSecondsRemaining} СЕК."
                             : $"ОЦЕНКА: {order.LastGrade} · {NetworkDeliveryOrder.FormatTime(order.ElapsedSeconds)} · ПАДЕНИЯ: {order.DropCount} · ДАЛЬШЕ: {order.TransitionSecondsRemaining} СЕК.");
                     SetText(orderStampText, order.LastGrade.ToString());

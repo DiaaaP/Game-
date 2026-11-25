@@ -55,6 +55,9 @@ namespace DeliveryImpossible.Orders
             public Transform courierSpawn;
             [Min(0f)] public float timeLimit;
 
+            public Rigidbody Body { get; set; }
+            public NetworkFragileCargo Fragile { get; set; }
+
             public int CheckpointCount => routeCheckpoints is { Length: > 0 } ? routeCheckpoints.Length : 1;
 
             public DeliveryCheckpoint GetCheckpoint(int index) =>
@@ -70,44 +73,196 @@ namespace DeliveryImpossible.Orders
         [SerializeField, Min(0f)] private float maximumAngularSpeed = 0.75f;
         [SerializeField, Min(1f)] private float nextOrderDelay = 6f;
 
-        [SyncVar] private DeliveryOrderState state;
+        public struct CargoProgress
+        {
+            public DeliveryOrderState State;
+            public DeliveryFailure Failure;
+            public DeliveryGrade Grade;
+            public int Checkpoints;
+            public int Drops;
+            public uint LastCourier;
+            public float Heat;
+            public float Charge;
+            public float Placement;
+            public float FinalTime;
+            public float FinalIntegrity;
+            public double StartedAt;
+            public double RetryAt;
+        }
+
+        public readonly struct CargoView
+        {
+            private readonly NetworkDeliveryOrder campaign;
+            private readonly int index;
+            private readonly CargoProgress progress;
+
+            internal CargoView(NetworkDeliveryOrder campaign, int index, CargoProgress progress)
+            {
+                this.campaign = campaign;
+                this.index = index;
+                this.progress = progress;
+            }
+
+            public bool IsValid => campaign != null;
+            private OrderDefinition Definition => campaign.orders[index];
+            public DeliveryOrderState State => campaign.shiftCompleted ? DeliveryOrderState.ShiftCompleted : progress.State;
+            public DeliveryMechanic CurrentMechanic => Definition.course?.Mechanic ?? DeliveryMechanic.Standard;
+            public string CurrentOrderName => Definition.displayName;
+            public string CurrentLevelName => Definition.levelName;
+            public string CurrentRouteHint => Definition.routeHint;
+            public NetworkGrabbable ActiveCargo => Definition.targetCargo;
+            public bool CurrentOrderRequiresTeam => ActiveCargo.RequiresTeam;
+            public bool CurrentOrderIsFragile => Definition.Fragile != null;
+            public float CurrentIntegrity => progress.State == DeliveryOrderState.Completed
+                ? progress.FinalIntegrity : Definition.Fragile?.IntegrityNormalized ?? 1f;
+            public int CurrentLevelNumber => campaign.CurrentLevelNumber;
+            public int TotalLevels => campaign.TotalLevels;
+            public int TotalOrders => campaign.TotalOrders;
+            public int CompletedOrders => campaign.CompletedOrders;
+            public int TotalScore => campaign.TotalScore;
+            public bool CampaignWon => campaign.CampaignWon;
+            public bool IncludesBonusCargo => campaign.IncludesBonusCargo;
+            public int LevelCargoCount => campaign.LevelCargoCount;
+            public int AcceptedThisLevel => campaign.AcceptedThisLevel;
+            public bool BridgePowered => campaign.BridgePowered;
+            public bool BridgeReady => campaign.BridgeReady;
+            public float BridgeProgress => campaign.BridgeProgress;
+            public int CheckpointsPassed => progress.Checkpoints;
+            public int CheckpointCount => Definition.CheckpointCount;
+            public float Heat => progress.Heat;
+            public bool IsSubstation => Definition.course?.Substation != null;
+            public float ChargeNormalized => Mathf.Clamp01(progress.Charge / TidalSubstation.ChargeSeconds);
+            public bool StationGateReady => campaign.StationGateProgress >= 0.999f;
+            public bool BeforeStationBridge => IsSubstation && CheckpointsPassed == TidalSubstation.FirstSteamBank &&
+                                               Definition.course.Substation.BeforeBridgeLanding(ActiveCargo.WorldCenter);
+            public bool StationSteamActive => TidalSubstation.IsSteamCheck(CheckpointsPassed) &&
+                                              TidalSubstation.SteamActive(CheckpointsPassed);
+            public int StationSteamSeconds => TidalSubstation.SteamSecondsRemaining(CheckpointsPassed);
+            public bool StationTeamLift => campaign.AllowsSharedLift(ActiveCargo);
+            public bool StationPartnerNeedsHelp => IsSubstation && LevelCargoCount == 2 && ActiveCargo == campaign.CargoAt(1)
+                && campaign.primaryProgress.State != DeliveryOrderState.Completed;
+            public bool IsCooling => CurrentMechanic == DeliveryMechanic.ColdChain &&
+                                     Definition.course.IsCooling(ActiveCargo.WorldCenter);
+            public bool CurrentBeamActive => CurrentMechanic == DeliveryMechanic.Security &&
+                                             CheckpointsPassed < CheckpointCount &&
+                                             DeliveryCourse.IsScannerActive(CheckpointsPassed);
+            public int ScannerSecondsRemaining => SecondsUntil(DeliveryCourse.ScannerTimeRemaining(CheckpointsPassed));
+            public bool IsDockAligned => CurrentMechanic != DeliveryMechanic.Docking ||
+                DeliveryCourse.DockAligned(ActiveCargo.transform, Definition.deliveryZone.transform);
+            public float PlacementNormalized => Mathf.Clamp01(progress.Placement / campaign.placementDuration);
+            public DeliveryGrade LastGrade => progress.Grade;
+            public DeliveryFailure Failure => progress.Failure;
+            public int DropCount => progress.Drops;
+            public float ElapsedSeconds => progress.State is DeliveryOrderState.Completed or DeliveryOrderState.Failed
+                ? progress.FinalTime : ElapsedSince(progress.StartedAt);
+            public int TransitionSecondsRemaining => SecondsUntil(
+                (progress.State == DeliveryOrderState.Failed ? progress.RetryAt : campaign.nextLevelAt) - NetworkTime.time);
+
+            public bool TryGetWaypoint(Vector3 viewer, out Vector3 marker, out string caption)
+            {
+                marker = Vector3.zero;
+                caption = "";
+                if (ActiveCargo == null || State is DeliveryOrderState.Failed or DeliveryOrderState.Completed or DeliveryOrderState.ShiftCompleted)
+                    return false;
+
+                DeliveryCourse course = Definition.course;
+                bool pickedUp = ActiveCargo.IsHeld;
+                if (IsSubstation && CheckpointsPassed == TidalSubstation.Charger &&
+                    (pickedUp || ChargeNormalized > 0f))
+                {
+                    marker = Definition.GetCheckpoint(TidalSubstation.Charger).transform.position;
+                    caption = "КОНТАКТНАЯ ПЛОЩАДКА";
+                }
+                else if (pickedUp && BeforeStationBridge)
+                {
+                    marker = course.Substation.BridgeLanding;
+                    caption = "МОСТ СПРАВА";
+                }
+                else if (CurrentMechanic == DeliveryMechanic.Drawbridge && !BridgePowered && pickedUp)
+                {
+                    marker = course.NearestPlate(viewer).transform.position;
+                    caption = "УПРАВЛЕНИЕ МОСТОМ";
+                }
+                else if (State == DeliveryOrderState.InTransit && CurrentMechanic == DeliveryMechanic.Conveyor &&
+                         CheckpointsPassed == 0 && (pickedUp || course.IsOnBelt(ActiveCargo.WorldCenter)))
+                {
+                    marker = pickedUp && course.BeltLoadPoint != null
+                        ? course.BeltLoadPoint.position : Definition.GetCheckpoint(0).transform.position;
+                    caption = pickedUp ? "ПОГРУЗИТЕ НА ЛЕНТУ" : "ПРИЁМНИК ЛЕНТЫ";
+                }
+                else if (pickedUp && State == DeliveryOrderState.ReadyForDelivery)
+                {
+                    marker = Definition.deliveryZone.transform.position;
+                    caption = CurrentMechanic == DeliveryMechanic.Docking ? "ГНЕЗДО МОДУЛЯ" : "ПРИЁМКА";
+                }
+                else if (pickedUp && State == DeliveryOrderState.InTransit)
+                {
+                    marker = Definition.GetCheckpoint(CheckpointsPassed).transform.position;
+                    caption = CurrentMechanic switch
+                    {
+                        DeliveryMechanic.Drawbridge => CheckpointsPassed == 0 ? "КОНЕЦ МОСТА" : "ПРОВЕРКА НА ПРИЧАЛЕ",
+                        DeliveryMechanic.Conveyor => "ПОСТ КОНТРОЛЯ",
+                        DeliveryMechanic.Security => $"СКАНЕР {CheckpointsPassed + 1}",
+                        DeliveryMechanic.ColdChain => $"ОХЛАЖДЕНИЕ {CheckpointsPassed + 1}/{CheckpointCount}",
+                        DeliveryMechanic.Docking when IsSubstation => CheckpointsPassed switch
+                        {
+                            TidalSubstation.FirstSteamBank => "ПАРОВОЙ КАНАЛ 1",
+                            TidalSubstation.FirstSteamBank + 1 => "ПАРОВОЙ КАНАЛ 2",
+                            _ => "ВЕРХНЯЯ ПЛОЩАДКА"
+                        },
+                        DeliveryMechanic.Docking => CheckpointsPassed switch
+                        {
+                            0 => "ВЫХОД С МОСТИКА",
+                            1 => "НАСОСНЫЙ УЗЕЛ",
+                            _ => "ЭНЕРГОСЕКЦИЯ"
+                        },
+                        _ => "МАРШРУТ"
+                    };
+                }
+                else
+                {
+                    marker = ActiveCargo.WorldCenter;
+                    caption = CurrentOrderName.ToUpperInvariant();
+                }
+
+                marker.y += 0.65f;
+                return true;
+            }
+        }
+
         [SyncVar] private int currentOrderIndex;
-        [SyncVar] private float placementProgress;
-        [SyncVar] private double startedAtNetworkTime;
-        [SyncVar] private float completionTimeSeconds;
-        [SyncVar] private float completionIntegrity = 1f;
-        [SyncVar] private int dropCount;
-        [SyncVar] private DeliveryGrade lastGrade;
+        [SyncVar] private int currentOrderNumber;
         [SyncVar] private int completedOrders;
         [SyncVar] private int totalScore;
-        [SyncVar] private double transitionAtNetworkTime;
-        [SyncVar] private int checkpointsPassed;
-        [SyncVar] private DeliveryFailure failure;
         [SyncVar] private bool includesBonusCargo;
-        [SyncVar] private int currentOrderNumber;
+        [SyncVar] private bool shiftCompleted;
         [SyncVar] private bool bridgePowered;
-        [SyncVar] private float heat;
         [SyncVar] private double bridgeStartedAt;
         [SyncVar] private double bypassStartedAt;
+        [SyncVar] private double stationPowerAt;
+        [SyncVar] private double nextLevelAt;
+        [SyncVar] private CargoProgress primaryProgress;
+        [SyncVar] private CargoProgress bonusProgress;
 
-        private Rigidbody cargoBody;
+        private readonly bool[] wasHeld = new bool[2];
+        private readonly double[] nextBeamDamageAt = new double[2];
         private Vector3[] initialCargoPositions;
         private Quaternion[] initialCargoRotations;
-        private bool wasHeld;
         private int soloOrderCount;
         private int levelCount;
-        private double nextBeamDamageAt;
         private double nextFallCheckAt;
 
+        public const float HeatingPerSecond = 0.067f;
+        private const float CoolingPerSecond = 0.47f;
         public static NetworkDeliveryOrder Active { get; private set; }
 
-        public DeliveryOrderState State => state;
-        public bool CurrentOrderRequiresTeam => CurrentCargo?.RequiresTeam == true;
-        public int CurrentOrderNumber => currentOrderNumber;
-        public int TotalOrders => includesBonusCargo ? orders?.Length ?? 0 : soloOrderCount;
-        public int CurrentLevelNumber => CurrentOrder?.levelNumber > 0 ? CurrentOrder.levelNumber : currentOrderNumber;
+        public DeliveryOrderState State => shiftCompleted ? DeliveryOrderState.ShiftCompleted : primaryProgress.State;
+        public int TotalOrders => includesBonusCargo ? orders.Length : soloOrderCount;
+        public int CurrentLevelNumber => PrimaryOrder?.levelNumber > 0 ? PrimaryOrder.levelNumber : currentOrderNumber;
         public int TotalLevels => levelCount;
-        public int CargoNumberInLevel => CurrentOrder?.coOpOnly == true ? 2 : 1;
+        public int LevelCargoCount => HasBonusAt(currentOrderIndex) ? 2 : 1;
+        public int AcceptedThisLevel => (primaryProgress.State == DeliveryOrderState.Completed ? 1 : 0) +
+            (LevelCargoCount == 2 && bonusProgress.State == DeliveryOrderState.Completed ? 1 : 0);
         public bool IncludesBonusCargo => includesBonusCargo;
         public bool BridgePowered => bridgePowered;
         public float BridgeProgress => !bridgePowered ? 0f :
@@ -115,133 +270,102 @@ namespace DeliveryImpossible.Orders
         public bool BridgeReady => BridgeProgress >= 0.999f;
         public float BypassGateProgress => bypassStartedAt <= 0d ? 0f :
             Mathf.Clamp01((float)(NetworkTime.time - bypassStartedAt) / 0.85f);
-        public const float HeatingPerSecond = 0.067f;
-        public const float CoolingPerSecond = 0.47f;
-        public float Heat => heat;
-        public bool IsCooling => CurrentMechanic == DeliveryMechanic.ColdChain && CurrentCargo != null &&
-                                 CurrentOrder.course.IsCooling(CurrentCargo.WorldCenter);
-        public DeliveryMechanic CurrentMechanic => CurrentOrder?.course?.Mechanic ?? DeliveryMechanic.Standard;
-        public bool CurrentBeamActive => CurrentMechanic == DeliveryMechanic.Security && checkpointsPassed < CheckpointCount &&
-                                         DeliveryCourse.IsScannerActive(checkpointsPassed);
-        public int ScannerSecondsRemaining => Mathf.Max(1, Mathf.CeilToInt(DeliveryCourse.ScannerTimeRemaining(checkpointsPassed)));
-        public bool IsDockAligned => CurrentMechanic != DeliveryMechanic.Docking ||
-                                     DeliveryCourse.DockAligned(CurrentCargo.transform, CurrentOrder.deliveryZone.transform);
+        public float StationGateProgress => stationPowerAt <= 0d ? 0f :
+            Mathf.Clamp01((float)(NetworkTime.time - stationPowerAt) / 1.2f);
         public int CompletedOrders => completedOrders;
         public int TotalScore => totalScore;
-        public DeliveryGrade LastGrade => lastGrade;
-        public string CurrentOrderName => CurrentOrder?.displayName ?? "ГРУЗ";
-        public string CurrentLevelName => CurrentOrder?.levelName ?? "";
-        public string CurrentRouteHint => CurrentOrder?.routeHint ?? "";
-        public int CheckpointsPassed => checkpointsPassed;
-        public int CheckpointCount => CurrentOrder?.CheckpointCount ?? 0;
-        public DeliveryFailure Failure => failure;
-        public bool HasTimeLimit => CurrentOrder?.timeLimit > 0f;
-        public bool CampaignWon => state == DeliveryOrderState.ShiftCompleted && completedOrders == TotalOrders;
-        public int TimeRemaining => Mathf.Max(0, Mathf.CeilToInt((CurrentOrder?.timeLimit ?? 0f) - ElapsedSeconds));
-        public bool CurrentOrderIsFragile => CurrentFragileCargo != null;
-        public float CurrentIntegrity => state == DeliveryOrderState.Completed
-            ? completionIntegrity
-            : CurrentFragileCargo?.IntegrityNormalized ?? 1f;
-        public float PlacementNormalized => placementDuration > 0f
-            ? Mathf.Clamp01(placementProgress / placementDuration)
-            : 0f;
-        public float ElapsedSeconds => state is DeliveryOrderState.Completed or DeliveryOrderState.Failed
-            ? completionTimeSeconds
-            : startedAtNetworkTime > 0d
-                ? Mathf.Max(0f, (float)(NetworkTime.time - startedAtNetworkTime))
-                : 0f;
-        public int DropCount => dropCount;
-        public int TransitionSecondsRemaining =>
-            state is DeliveryOrderState.Completed or DeliveryOrderState.Failed
-                ? Mathf.Max(0, Mathf.CeilToInt((float)(transitionAtNetworkTime - NetworkTime.time)))
-                : 0;
+        public bool CampaignWon => shiftCompleted && completedOrders == TotalOrders;
 
-        private OrderDefinition CurrentOrder =>
-            orders != null && currentOrderIndex >= 0 && currentOrderIndex < orders.Length
-                ? orders[currentOrderIndex]
-                : null;
-        private NetworkGrabbable CurrentCargo => CurrentOrder?.targetCargo;
-        public NetworkGrabbable ActiveCargo => CurrentCargo;
-        private NetworkFragileCargo CurrentFragileCargo =>
-            CurrentCargo != null ? CurrentCargo.GetComponent<NetworkFragileCargo>() : null;
+        private OrderDefinition PrimaryOrder => orders != null && orders.Length > currentOrderIndex
+            ? orders[currentOrderIndex] : null;
 
-        public bool UsesCourse(DeliveryCourse course) => ReferenceEquals(CurrentOrder?.course, course);
+        private bool HasBonusAt(int index) => includesBonusCargo && orders != null && index + 1 < orders.Length &&
+            orders[index + 1].coOpOnly && orders[index + 1].levelNumber == orders[index].levelNumber &&
+            ReferenceEquals(orders[index + 1].course, orders[index].course);
+
+        private static int SecondsUntil(double seconds) => Mathf.Max(0, Mathf.CeilToInt((float)seconds));
+
+        private static float ElapsedSince(double startedAt) =>
+            startedAt > 0d ? Mathf.Max(0f, (float)(NetworkTime.time - startedAt)) : 0f;
+
+        public bool UsesCourse(DeliveryCourse course) => ReferenceEquals(PrimaryOrder?.course, course);
+
+        public bool StationCircuitOnline(int circuit) => circuit < LevelCargoCount &&
+            GetProgress(circuit).State == DeliveryOrderState.Completed;
+
+        public NetworkGrabbable CargoAt(int slot) => PrimaryOrder != null && slot >= 0 && slot < LevelCargoCount
+            ? orders[currentOrderIndex + slot].targetCargo : null;
+
+        private CargoProgress GetProgress(int slot) => slot == 0 ? primaryProgress : bonusProgress;
+
+        private void SetProgress(int slot, CargoProgress progress)
+        {
+            if (slot == 0) primaryProgress = progress;
+            else bonusProgress = progress;
+        }
+
+        private int SlotOf(NetworkGrabbable cargo)
+        {
+            if (cargo == null) return -1;
+            if (cargo == CargoAt(0)) return 0;
+            return cargo == CargoAt(1) ? 1 : -1;
+        }
+
+        public bool AllowsSharedLift(NetworkGrabbable cargo) => cargo != null && cargo == CargoAt(0) &&
+            LevelCargoCount == 2 && PrimaryOrder.course?.Substation != null &&
+            primaryProgress.Checkpoints == TidalSubstation.LiftCheck;
+
+        public bool CanCarrySeparately(NetworkGrabbable cargo) => LevelCargoCount == 2 && SlotOf(cargo) >= 0 &&
+            !AllowsSharedLift(cargo);
+
+        public bool AllowsPickup(NetworkGrabbable cargo)
+        {
+            if (shiftCompleted || NetworkSessionState.Active?.SessionStarted == false) return false;
+            int slot = SlotOf(cargo);
+            return slot >= 0 && GetProgress(slot).State is
+                DeliveryOrderState.AwaitingPickup or DeliveryOrderState.InTransit or DeliveryOrderState.ReadyForDelivery;
+        }
+
+        private int SlotForCourier(LobbyPlayer courier, NetworkGrabbable held)
+        {
+            int slot = SlotOf(held);
+            if (slot >= 0) return slot;
+            if (LevelCargoCount == 1 || courier == null) return 0;
+
+            uint id = courier.netId;
+            bool usedPrimary = primaryProgress.LastCourier == id;
+            bool usedBonus = bonusProgress.LastCourier == id;
+            int preferred = usedPrimary != usedBonus ? (usedPrimary ? 0 : 1) : (courier.PlayerNumber == 2 ? 1 : 0);
+            int other = 1 - preferred;
+            NetworkGrabbable cargo = CargoAt(preferred);
+            if (cargo.IsHeld && cargo.FirstHolderNetId != id &&
+                GetProgress(other).State != DeliveryOrderState.Completed && !CargoAt(other).IsHeld)
+            {
+                return other;
+            }
+            return preferred;
+        }
+
+        public CargoView ViewForCourier(LobbyPlayer courier, NetworkGrabbable held)
+        {
+            if (PrimaryOrder == null) return default;
+            int slot = SlotForCourier(courier, held);
+            return new CargoView(this, currentOrderIndex + slot, GetProgress(slot));
+        }
 
         public bool TryGetNearbyDockRotation(NetworkGrabbable cargo, Vector3 player, out Quaternion rotation)
         {
             rotation = Quaternion.identity;
-            if (cargo != CurrentCargo || CurrentMechanic != DeliveryMechanic.Docking || state != DeliveryOrderState.ReadyForDelivery)
-                return false;
-            Transform dock = CurrentOrder.deliveryZone.transform;
-            if (FlatDistance(player, dock.position) > 5f) return false;
+            int slot = SlotOf(cargo);
+            if (slot < 0 || GetProgress(slot).State != DeliveryOrderState.ReadyForDelivery) return false;
+            OrderDefinition definition = orders[currentOrderIndex + slot];
+            if (definition.course?.Mechanic != DeliveryMechanic.Docking) return false;
+            Transform dock = definition.deliveryZone.transform;
+            Vector3 offset = player - dock.position;
+            offset.y = 0f;
+            if (offset.sqrMagnitude > 25f) return false;
             rotation = dock.rotation;
             return true;
-        }
-
-        public bool TryGetWaypoint(Vector3 viewer, out Vector3 marker, out string caption)
-        {
-            marker = Vector3.zero;
-            caption = "";
-            if (CurrentCargo == null || state is DeliveryOrderState.Failed or DeliveryOrderState.Completed or DeliveryOrderState.ShiftCompleted)
-                return false;
-
-            var course = CurrentOrder.course;
-            bool pickedUp = CurrentCargo.IsHeld;
-            if (CurrentMechanic == DeliveryMechanic.Drawbridge && !bridgePowered && pickedUp)
-            {
-                marker = course.NearestPlate(viewer).transform.position;
-                caption = "УПРАВЛЕНИЕ МОСТОМ";
-            }
-            else if (state == DeliveryOrderState.InTransit && CurrentMechanic == DeliveryMechanic.Conveyor &&
-                     checkpointsPassed == 0 && (pickedUp || course.IsOnBelt(CurrentCargo.WorldCenter)))
-            {
-                marker = pickedUp && course.BeltLoadPoint != null
-                    ? course.BeltLoadPoint.position : CurrentOrder.GetCheckpoint(0).transform.position;
-                caption = pickedUp ? "ПОГРУЗИТЕ НА ЛЕНТУ" : "ПРИЁМНИК ЛЕНТЫ";
-            }
-            else if (!pickedUp)
-            {
-                marker = CurrentCargo.WorldCenter;
-                caption = CurrentOrderName.ToUpperInvariant();
-            }
-            else if (state == DeliveryOrderState.ReadyForDelivery)
-            {
-                marker = CurrentOrder.deliveryZone.transform.position;
-                caption = CurrentMechanic == DeliveryMechanic.Docking ? "ГНЕЗДО МОДУЛЯ" : "ПРИЁМКА";
-            }
-            else if (state == DeliveryOrderState.InTransit)
-            {
-                marker = CurrentOrder.GetCheckpoint(checkpointsPassed).transform.position;
-                caption = CurrentMechanic switch
-                {
-                    DeliveryMechanic.Drawbridge => checkpointsPassed == 0 ? "КОНЕЦ МОСТА" : "ПРОВЕРКА НА ПРИЧАЛЕ",
-                    DeliveryMechanic.Conveyor => "ПОСТ КОНТРОЛЯ",
-                    DeliveryMechanic.Security => $"СКАНЕР {checkpointsPassed + 1}",
-                    DeliveryMechanic.ColdChain => $"ОХЛАЖДЕНИЕ {checkpointsPassed + 1}/{CheckpointCount}",
-                    DeliveryMechanic.Docking => checkpointsPassed switch
-                    {
-                        0 => "ВЫХОД С МОСТИКА",
-                        1 => "НАСОСНЫЙ УЗЕЛ",
-                        _ => "ЭНЕРГОСЕКЦИЯ"
-                    },
-                    _ => "МАРШРУТ"
-                };
-            }
-            else
-            {
-                marker = CurrentCargo.WorldCenter;
-                caption = CurrentOrderName.ToUpperInvariant();
-            }
-
-            marker.y += 0.65f;
-            return true;
-        }
-
-        private static float FlatDistance(Vector3 first, Vector3 second)
-        {
-            Vector3 difference = first - second;
-            difference.y = 0f;
-            return difference.magnitude;
         }
 
         private void Awake()
@@ -249,23 +373,19 @@ namespace DeliveryImpossible.Orders
             if (orders == null) return;
             foreach (OrderDefinition order in orders)
             {
-                if (order == null || order.coOpOnly) continue;
+                if (order?.targetCargo == null) continue;
+                order.Body = order.targetCargo.GetComponent<Rigidbody>();
+                order.Fragile = order.targetCargo.GetComponent<NetworkFragileCargo>();
+                if (order.coOpOnly) continue;
                 soloOrderCount++;
                 levelCount = Mathf.Max(levelCount, order.levelNumber);
             }
-
             if (levelCount == 0) levelCount = soloOrderCount;
         }
-
-        public bool AllowsPickup(NetworkGrabbable cargo) =>
-            (NetworkSessionState.Active == null || NetworkSessionState.Active.SessionStarted) &&
-            cargo == CurrentCargo &&
-            state is DeliveryOrderState.AwaitingPickup or DeliveryOrderState.InTransit or DeliveryOrderState.ReadyForDelivery;
 
         public override void OnStartServer()
         {
             base.OnStartServer();
-
             if (!ValidateOrders())
             {
                 enabled = false;
@@ -276,13 +396,12 @@ namespace DeliveryImpossible.Orders
             initialCargoRotations = new Quaternion[orders.Length];
             for (int index = 0; index < orders.Length; index++)
             {
-                NetworkGrabbable cargo = orders[index].targetCargo;
-                initialCargoPositions[index] = cargo.transform.position;
-                initialCargoRotations[index] = cargo.transform.rotation;
+                Transform cargo = orders[index].targetCargo.transform;
+                initialCargoPositions[index] = cargo.position;
+                initialCargoRotations[index] = cargo.rotation;
             }
-
             Active = this;
-            RestartShift();
+            ServerRestartShift();
         }
 
         public override void OnStartClient()
@@ -294,147 +413,178 @@ namespace DeliveryImpossible.Orders
         [ServerCallback]
         private void FixedUpdate()
         {
-            if (NetworkSessionState.Active != null && !NetworkSessionState.Active.SessionStarted)
-            {
+            if (initialCargoPositions == null || shiftCompleted || NetworkSessionState.Active?.SessionStarted == false)
                 return;
-            }
 
             CheckCourierFalls();
-
-            if (state is DeliveryOrderState.Completed or DeliveryOrderState.Failed)
+            if (nextLevelAt > 0d)
             {
-                if (NetworkTime.time >= transitionAtNetworkTime)
-                {
-                    if (state == DeliveryOrderState.Completed) AdvanceOrder();
-                    else BeginCurrentOrder();
-                }
-
+                if (NetworkTime.time >= nextLevelAt) AdvanceLevel();
                 return;
             }
 
-            if (state == DeliveryOrderState.ShiftCompleted) return;
-
-            OrderDefinition order = CurrentOrder;
-            NetworkGrabbable cargo = CurrentCargo;
-            if (order == null || cargo == null || cargoBody == null)
+            DeliveryCourse course = PrimaryOrder.course;
+            if (!bridgePowered && course?.Mechanic == DeliveryMechanic.Drawbridge &&
+                course.PlatesPressed(LobbyPlayer.ServerPlayers, includesBonusCargo))
             {
+                bridgePowered = true;
+                bridgeStartedAt = NetworkTime.time;
+            }
+
+            for (int slot = 0; slot < LevelCargoCount; slot++)
+            {
+                TickCargo(slot);
+            }
+            if (AcceptedThisLevel == LevelCargoCount) nextLevelAt = NetworkTime.time + nextOrderDelay;
+        }
+
+        [Server]
+        private void TickCargo(int slot)
+        {
+            CargoProgress progress = GetProgress(slot);
+            if (progress.State == DeliveryOrderState.Completed) return;
+            double now = NetworkTime.time;
+            if (progress.State == DeliveryOrderState.Failed)
+            {
+                if (now >= progress.RetryAt) BeginCargo(slot, respawn: true);
                 return;
             }
 
-            if (CurrentFragileCargo?.IsBroken == true)
+            OrderDefinition definition = orders[currentOrderIndex + slot];
+            NetworkGrabbable cargo = definition.targetCargo;
+            Rigidbody body = definition.Body;
+            if (body.position.y < -4f)
             {
-                FailCurrentOrder(DeliveryFailure.BrokenCargo);
+                BeginCargo(slot, respawn: true);
                 return;
             }
-
-            if (HasTimeLimit && startedAtNetworkTime > 0d && ElapsedSeconds >= order.timeLimit)
+            if (definition.Fragile?.IsBroken == true)
             {
-                FailCurrentOrder(DeliveryFailure.TimeExpired);
+                FailCargo(slot, progress, DeliveryFailure.BrokenCargo);
                 return;
             }
-
-            if (cargoBody.position.y < -4f)
+            float elapsed = ElapsedSince(progress.StartedAt);
+            if (definition.timeLimit > 0f && progress.StartedAt > 0d && elapsed >= definition.timeLimit)
             {
-                ServerRecoverCargo();
+                FailCargo(slot, progress, DeliveryFailure.TimeExpired);
                 return;
             }
 
             bool canCarry = cargo.HolderCount >= cargo.RequiredHolders;
-            if (state == DeliveryOrderState.AwaitingPickup && canCarry)
+            if (cargo.IsHeld) progress.LastCourier = cargo.FirstHolderNetId;
+            if (progress.State == DeliveryOrderState.AwaitingPickup && canCarry)
             {
-                state = DeliveryOrderState.InTransit;
-                if (startedAtNetworkTime <= 0d)
+                progress.State = DeliveryOrderState.InTransit;
+                progress.StartedAt = now;
+            }
+
+            DeliveryCourse course = definition.course;
+            DeliveryMechanic mechanic = course?.Mechanic ?? DeliveryMechanic.Standard;
+            TidalSubstation station = course?.Substation;
+            bool beamsActive = mechanic == DeliveryMechanic.Security && progress.Checkpoints < definition.CheckpointCount &&
+                               DeliveryCourse.IsScannerActive(progress.Checkpoints);
+            Vector3 position = cargo.WorldCenter;
+            bool onBelt = mechanic == DeliveryMechanic.Conveyor && course.IsOnBelt(position);
+            bool onCharger = false;
+
+            if (onBelt && !cargo.IsHeld) course.DriveBelt(body);
+            if (mechanic == DeliveryMechanic.ColdChain && progress.StartedAt > 0d)
+            {
+                float rate = course.IsCooling(position) ? -CoolingPerSecond : HeatingPerSecond;
+                progress.Heat = Mathf.Clamp01(progress.Heat + Time.fixedDeltaTime * rate);
+                if (progress.Heat >= 1f)
                 {
-                    startedAtNetworkTime = NetworkTime.time;
+                    FailCargo(slot, progress, DeliveryFailure.Overheated);
+                    return;
+                }
+            }
+            if (progress.State == DeliveryOrderState.InTransit)
+            {
+                int stage = progress.Checkpoints;
+                bool atCheckpoint = definition.GetCheckpoint(stage).ContainsPoint(position);
+                if (station != null)
+                {
+                    station.ApplySteam(body, position);
+                    if (stage == TidalSubstation.Charger)
+                    {
+                        onCharger = atCheckpoint;
+                        bool resting = atCheckpoint && !cargo.IsHeld && body.linearVelocity.sqrMagnitude < 0.07f;
+                        progress.Charge = resting
+                            ? Mathf.Min(TidalSubstation.ChargeSeconds, progress.Charge + Time.fixedDeltaTime) : 0f;
+                    }
+                }
+
+                if (atCheckpoint)
+                {
+                    if (beamsActive && now >= nextBeamDamageAt[slot])
+                    {
+                        nextBeamDamageAt[slot] = now + 1.1d;
+                        definition.Fragile?.ServerApplyDamage(0.20f);
+                    }
+
+                    bool canCross = mechanic switch
+                    {
+                        DeliveryMechanic.Drawbridge => canCarry && BridgeReady,
+                        DeliveryMechanic.Conveyor => progress.Checkpoints == 0 ? !cargo.IsHeld : canCarry,
+                        DeliveryMechanic.Security => canCarry && !beamsActive,
+                        DeliveryMechanic.ColdChain => canCarry && progress.Heat <= 0.23f,
+                        DeliveryMechanic.Docking when station != null && stage == TidalSubstation.Charger =>
+                            progress.Charge >= TidalSubstation.ChargeSeconds,
+                        DeliveryMechanic.Docking when station != null && TidalSubstation.IsSteamCheck(stage) =>
+                            canCarry && !TidalSubstation.SteamActive(stage),
+                        DeliveryMechanic.Docking when station != null && AllowsSharedLift(cargo) =>
+                            cargo.HolderCount >= 2,
+                        _ => canCarry
+                    };
+                    if (canCross)
+                    {
+                        progress.Checkpoints++;
+                        if (mechanic == DeliveryMechanic.Conveyor && progress.Checkpoints == 1 && bypassStartedAt <= 0d)
+                            bypassStartedAt = now;
+                        if (station != null && stage == TidalSubstation.Charger && stationPowerAt <= 0d)
+                            stationPowerAt = now;
+                        if (progress.Checkpoints == definition.CheckpointCount)
+                            progress.State = DeliveryOrderState.ReadyForDelivery;
+                    }
                 }
             }
 
-            if (!ApplyCourseRules(order.course, cargo)) return;
+            bool justDropped = wasHeld[slot] && !cargo.IsHeld;
+            wasHeld[slot] = cargo.IsHeld;
+            bool inside = !cargo.IsHeld && (justDropped || progress.State == DeliveryOrderState.ReadyForDelivery) &&
+                          definition.deliveryZone.ContainsEntireObject(cargo.gameObject);
+            if (justDropped && !inside && !onBelt && !onCharger) progress.Drops++;
 
-            if (state == DeliveryOrderState.InTransit && CanPassCheckpoint(canCarry, cargo) &&
-                order.GetCheckpoint(checkpointsPassed).ContainsPoint(cargo.WorldCenter))
+            bool placed = progress.State == DeliveryOrderState.ReadyForDelivery && inside &&
+                          (mechanic != DeliveryMechanic.Docking ||
+                           DeliveryCourse.DockAligned(cargo.transform, definition.deliveryZone.transform)) &&
+                          body.linearVelocity.sqrMagnitude <= maximumLinearSpeed * maximumLinearSpeed &&
+                          body.angularVelocity.sqrMagnitude <= maximumAngularSpeed * maximumAngularSpeed;
+            progress.Placement = placed ? Mathf.Min(placementDuration, progress.Placement + Time.fixedDeltaTime) : 0f;
+            if (progress.Placement >= placementDuration)
             {
-                checkpointsPassed++;
-                if (CurrentMechanic == DeliveryMechanic.Conveyor && checkpointsPassed == 1)
-                    bypassStartedAt = NetworkTime.time;
-                if (checkpointsPassed == order.CheckpointCount)
-                {
-                    state = DeliveryOrderState.ReadyForDelivery;
-                }
+                progress.FinalTime = ElapsedSince(progress.StartedAt);
+                progress.FinalIntegrity = definition.Fragile?.IntegrityNormalized ?? 1f;
+                progress.Grade = CalculateGrade(definition.Fragile != null, progress.FinalIntegrity, progress.FinalTime, progress.Drops);
+                totalScore += ScoreFor(progress.Grade);
+                completedOrders++;
+                progress.State = DeliveryOrderState.Completed;
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
             }
-
-            bool insideDeliveryZone = order.deliveryZone.ContainsEntireObject(cargo.gameObject);
-            if (wasHeld && !cargo.IsHeld && !insideDeliveryZone && order.course?.IsOnBelt(cargo.WorldCenter) != true)
-            {
-                dropCount++;
-            }
-
-            wasHeld = cargo.IsHeld;
-
-            bool placedCorrectly =
-                state == DeliveryOrderState.ReadyForDelivery &&
-                !cargo.IsHeld &&
-                insideDeliveryZone &&
-                IsDockAligned &&
-                cargoBody.linearVelocity.sqrMagnitude <= maximumLinearSpeed * maximumLinearSpeed &&
-                cargoBody.angularVelocity.sqrMagnitude <= maximumAngularSpeed * maximumAngularSpeed;
-
-            placementProgress = placedCorrectly
-                ? Mathf.Min(placementDuration, placementProgress + Time.fixedDeltaTime)
-                : 0f;
-
-            if (placementProgress >= placementDuration)
-            {
-                CompleteCurrentOrder();
-            }
+            SetProgress(slot, progress);
         }
 
         [Server]
-        private bool ApplyCourseRules(DeliveryCourse course, NetworkGrabbable cargo)
+        private void FailCargo(int slot, CargoProgress progress, DeliveryFailure reason)
         {
-            if (course == null) return true;
-            Vector3 position = cargo.WorldCenter;
-            switch (course.Mechanic)
-            {
-                case DeliveryMechanic.Drawbridge:
-                    if (!bridgePowered && course.PlatesPressed(LobbyPlayer.ServerPlayers, includesBonusCargo))
-                    {
-                        bridgePowered = true;
-                        bridgeStartedAt = NetworkTime.time;
-                    }
-                    break;
-                case DeliveryMechanic.Conveyor:
-                    if (!cargo.IsHeld && course.IsOnBelt(position)) course.DriveBelt(cargoBody);
-                    break;
-                case DeliveryMechanic.Security:
-                    if (state == DeliveryOrderState.InTransit && CurrentBeamActive &&
-                        NetworkTime.time >= nextBeamDamageAt &&
-                        CurrentOrder.GetCheckpoint(checkpointsPassed).ContainsPoint(position))
-                    {
-                        nextBeamDamageAt = NetworkTime.time + 1.1d;
-                        CurrentFragileCargo?.ServerApplyDamage(0.20f);
-                    }
-
-                    break;
-                case DeliveryMechanic.ColdChain:
-                    if (startedAtNetworkTime <= 0d) break;
-                    heat = Mathf.Clamp01(heat + Time.fixedDeltaTime * (course.IsCooling(position) ? -CoolingPerSecond : HeatingPerSecond));
-                    if (heat < 1f) break;
-                    FailCurrentOrder(DeliveryFailure.Overheated);
-                    return false;
-            }
-
-            return true;
+            progress.State = DeliveryOrderState.Failed;
+            progress.Failure = reason;
+            progress.FinalTime = ElapsedSince(progress.StartedAt);
+            progress.Placement = 0f;
+            progress.RetryAt = NetworkTime.time + nextOrderDelay;
+            SetProgress(slot, progress);
         }
-
-        private bool CanPassCheckpoint(bool canCarry, NetworkGrabbable cargo) => CurrentMechanic switch
-        {
-            DeliveryMechanic.Drawbridge => canCarry && BridgeReady,
-            DeliveryMechanic.Conveyor => checkpointsPassed == 0 ? !cargo.IsHeld : canCarry,
-            DeliveryMechanic.Security => canCarry && !CurrentBeamActive,
-            DeliveryMechanic.ColdChain => canCarry && heat <= 0.23f,
-            _ => canCarry
-        };
 
         [Server]
         private void CheckCourierFalls()
@@ -444,162 +594,137 @@ namespace DeliveryImpossible.Orders
             foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers)
             {
                 if (courier.transform.position.y >= -5f) continue;
-                ServerRecoverCargo();
-                break;
+                NetworkGrabbable held = courier.GetComponent<NetworkGrabber>().HeldObject;
+                int heldSlot = SlotOf(held);
+                if (heldSlot >= 0) BeginCargo(heldSlot, respawn: false);
+                int slot = heldSlot >= 0 ? heldSlot : SlotForCourier(courier, held);
+                ServerPlaceCourier(courier, RecoveryPoint(slot));
             }
         }
 
         [Server]
-        private void FailCurrentOrder(DeliveryFailure reason)
+        public void ServerRecoverCargo(LobbyPlayer courier)
         {
-            failure = reason;
-            completionTimeSeconds = ElapsedSeconds;
-            state = DeliveryOrderState.Failed;
-            placementProgress = 0f;
-            transitionAtNetworkTime = NetworkTime.time + nextOrderDelay;
+            if (shiftCompleted || NetworkSessionState.Active?.SessionStarted == false) return;
+            int slot = SlotForCourier(courier, courier.GetComponent<NetworkGrabber>().HeldObject);
+            NetworkGrabbable cargo = CargoAt(slot);
+            if (GetProgress(slot).State == DeliveryOrderState.Completed ||
+                (cargo.IsHeld && cargo.FirstHolderNetId != courier.netId && cargo.SecondHolderNetId != courier.netId))
+                return;
+            BeginCargo(slot, respawn: false);
+            ServerPlaceCourier(courier, RecoveryPoint(slot));
         }
 
         [Server]
-        public void ServerRecoverCargo()
+        private void AdvanceLevel()
         {
-            if (CurrentCargo == null || state is DeliveryOrderState.Completed or DeliveryOrderState.ShiftCompleted)
+            int count = LevelCargoCount;
+            for (int slot = 0; slot < count; slot++) ResetCargo(currentOrderIndex + slot);
+            int next = currentOrderIndex + count;
+            while (!includesBonusCargo && next < orders.Length && orders[next].coOpOnly) next++;
+            if (next >= orders.Length)
             {
+                shiftCompleted = true;
+                nextLevelAt = 0d;
                 return;
             }
-
-            BeginCurrentOrder();
-        }
-
-        [Server]
-        private void CompleteCurrentOrder()
-        {
-            completionTimeSeconds = Mathf.Max(
-                0f,
-                (float)(NetworkTime.time - startedAtNetworkTime));
-            completionIntegrity = CurrentFragileCargo?.IntegrityNormalized ?? 1f;
-            lastGrade = CalculateGrade(
-                CurrentOrderIsFragile,
-                completionIntegrity,
-                completionTimeSeconds,
-                dropCount);
-            totalScore += ScoreFor(lastGrade);
-            completedOrders++;
-            state = DeliveryOrderState.Completed;
-            transitionAtNetworkTime = NetworkTime.time + nextOrderDelay;
-            cargoBody.linearVelocity = Vector3.zero;
-            cargoBody.angularVelocity = Vector3.zero;
-        }
-
-        [Server]
-        private void AdvanceOrder()
-        {
-            ResetCargo(currentOrderIndex);
-            int nextOrder = currentOrderIndex + 1;
-            while (nextOrder < orders.Length && !includesBonusCargo && orders[nextOrder].coOpOnly)
-                nextOrder++;
-
-            if (nextOrder >= orders.Length)
-            {
-                state = DeliveryOrderState.ShiftCompleted;
-                placementProgress = 0f;
-                transitionAtNetworkTime = 0d;
-                return;
-            }
-
-            if (!ReferenceEquals(CurrentOrder.course, orders[nextOrder].course))
-                bridgePowered = false;
-            currentOrderIndex = nextOrder;
-            currentOrderNumber++;
-            BeginCurrentOrder();
-        }
-
-        [Server]
-        private void RestartShift()
-        {
-            includesBonusCargo = NetworkSessionState.Active?.SessionStarted == true && !NetworkSessionState.Active.IsSolo;
-            bridgePowered = false;
-            for (int index = 0; index < orders.Length; index++)
-            {
-                ResetCargo(index);
-            }
-
-            currentOrderIndex = 0;
-            currentOrderNumber = 1;
-            completedOrders = 0;
-            totalScore = 0;
-            BeginCurrentOrder();
+            currentOrderIndex = next;
+            currentOrderNumber += count;
+            BeginLevel();
         }
 
         [Server]
         public void ServerRestartShift()
         {
-            if (initialCargoPositions != null)
-            {
-                RestartShift();
-            }
+            if (initialCargoPositions == null) return;
+
+            includesBonusCargo = NetworkSessionState.Active?.SessionStarted == true && !NetworkSessionState.Active.IsSolo;
+            for (int index = 0; index < orders.Length; index++) ResetCargo(index);
+            currentOrderIndex = 0;
+            currentOrderNumber = 1;
+            completedOrders = 0;
+            totalScore = 0;
+            shiftCompleted = false;
+            BeginLevel();
         }
 
         [Server]
-        private void BeginCurrentOrder()
+        private void BeginLevel()
         {
-            NetworkGrabbable cargo = CurrentCargo;
-            cargoBody = cargo.GetComponent<Rigidbody>();
-            cargo.ServerResetPose(
-                initialCargoPositions[currentOrderIndex],
-                initialCargoRotations[currentOrderIndex]);
-            CurrentFragileCargo?.ServerResetDamage();
-            state = DeliveryOrderState.AwaitingPickup;
-            checkpointsPassed = 0;
-            failure = DeliveryFailure.None;
-            heat = CurrentMechanic == DeliveryMechanic.ColdChain ? 0.29f : 0f;
+            bridgePowered = false;
+            bridgeStartedAt = 0d;
             bypassStartedAt = 0d;
-            nextBeamDamageAt = 0d;
-            placementProgress = 0f;
-            startedAtNetworkTime = 0d;
-            completionTimeSeconds = 0f;
-            completionIntegrity = 1f;
-            dropCount = 0;
-            lastGrade = DeliveryGrade.None;
-            transitionAtNetworkTime = 0d;
-            wasHeld = false;
+            stationPowerAt = 0d;
+            nextLevelAt = 0d;
+            primaryProgress = default;
+            bonusProgress = default;
+            for (int slot = 0; slot < LevelCargoCount; slot++) BeginCargo(slot, respawn: false);
+            foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers) ServerPlaceCourier(courier);
+        }
 
-            Transform spawn = CurrentOrder.courierSpawn;
-            if (spawn != null && NetworkSessionState.Active?.SessionStarted == true)
+        [Server]
+        private void BeginCargo(int slot, bool respawn)
+        {
+            int index = currentOrderIndex + slot;
+            CargoProgress previous = GetProgress(slot);
+            Transform checkpoint = RecoveryPoint(slot);
+            if (checkpoint == null)
             {
-                foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers)
-                {
-                    ServerPlaceCourier(courier);
-                }
+                ResetCargo(index);
+            }
+            else
+            {
+                float side = slot == 0 ? -1.15f : 1.15f;
+                Vector3 position = checkpoint.position + checkpoint.right * side + checkpoint.forward * 2.05f +
+                                   Vector3.up * initialCargoPositions[index].y;
+                orders[index].targetCargo.ServerResetPose(position, checkpoint.rotation);
+                orders[index].Fragile?.ServerResetDamage();
+            }
+
+            SetProgress(slot, new CargoProgress
+            {
+                State = checkpoint == null ? DeliveryOrderState.AwaitingPickup :
+                    previous.Checkpoints == orders[index].CheckpointCount ? DeliveryOrderState.ReadyForDelivery : DeliveryOrderState.InTransit,
+                Checkpoints = checkpoint == null ? 0 : previous.Checkpoints,
+                LastCourier = previous.LastCourier,
+                StartedAt = checkpoint == null ? 0d : previous.StartedAt,
+                Drops = checkpoint == null ? 0 : previous.Drops + 1,
+                Heat = orders[index].course?.Mechanic == DeliveryMechanic.ColdChain ? 0.29f : 0f
+            });
+            wasHeld[slot] = false;
+            nextBeamDamageAt[slot] = 0d;
+            if (LevelCargoCount == 1 && orders[index].course?.Mechanic == DeliveryMechanic.Conveyor)
+                bypassStartedAt = 0d;
+            if (!respawn) return;
+
+            foreach (LobbyPlayer courier in LobbyPlayer.ServerPlayers)
+            {
+                bool responsible = previous.LastCourier != 0u
+                    ? courier.netId == previous.LastCourier : courier.PlayerNumber == slot + 1;
+                if (responsible && courier.GetComponent<NetworkGrabber>().HeldObject == null)
+                    ServerPlaceCourier(courier, checkpoint);
             }
         }
 
         [Server]
-        public void ServerPlaceCourier(LobbyPlayer courier)
+        public void ServerPlaceCourier(LobbyPlayer courier, Transform checkpoint = null)
         {
-            Transform spawn = CurrentOrder?.courierSpawn;
-            if (spawn == null || NetworkSessionState.Active?.SessionStarted != true)
-            {
-                return;
-            }
-
+            Transform spawn = checkpoint != null ? checkpoint : PrimaryOrder.courierSpawn;
+            if (spawn == null || NetworkSessionState.Active?.SessionStarted != true) return;
             float side = courier.PlayerNumber == 1 ? -1f : 1f;
             if (courier.TryGetComponent(out NetworkFirstPersonController controller))
-            {
                 controller.ServerEnterLevel(spawn.position + spawn.right * (1.15f * side), spawn.rotation);
-            }
         }
+
+        private Transform RecoveryPoint(int slot) =>
+            orders[currentOrderIndex + slot].course?.Substation?.RecoveryPoint(GetProgress(slot).Checkpoints);
 
         [Server]
         private void ResetCargo(int index)
         {
-            if (orders == null || index < 0 || index >= orders.Length)
-            {
-                return;
-            }
-
-            NetworkGrabbable cargo = orders[index].targetCargo;
-            cargo.ServerResetPose(initialCargoPositions[index], initialCargoRotations[index]);
-            cargo.GetComponent<NetworkFragileCargo>()?.ServerResetDamage();
+            OrderDefinition order = orders[index];
+            order.targetCargo.ServerResetPose(initialCargoPositions[index], initialCargoRotations[index]);
+            order.Fragile?.ServerResetDamage();
         }
 
         private bool ValidateOrders()
@@ -629,7 +754,7 @@ namespace DeliveryImpossible.Orders
                     }
                 }
 
-                if (order.targetCargo.GetComponent<Rigidbody>() == null)
+                if (order.Body == null)
                 {
                     Debug.LogError(
                         $"Order cargo '{order.targetCargo.name}' needs a Rigidbody.",
